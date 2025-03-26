@@ -20,13 +20,14 @@ function Base.similar(v::OdePoint3)
     OdePoint3{T, V}(x, a, g)
 end
 
+
 function preallocate(dim, T, V)
     U = OdePoint3{T, V}
 
     x0::T = convert(T, I(dim))
     v::U = OdePoint3{T, V}(similar(x0), similar(x0), convert(V, similar(x0)))
-    xs::Vector{T} = [similar(x0) for _ in 1:3]
-    vs::Vector{U} = [similar(v) for _ in 1:3]
+    xs::Vector{T} = [similar(x0) for _ in 1:4]
+    vs::Vector{U} = [similar(v) for _ in 1:4]
     Pz::V = similar(v.g)
     dJ::V = similar(v.g)
     zρ::V = similar(v.g)
@@ -46,6 +47,17 @@ function projection!(z, hp)
     end
     return hp.PA.Pz
 end
+
+function projhermitian!(x)
+    x .= (x .+ x')./2 
+end
+
+function projtraceless!(x)
+    dim = size(x, 1)
+    α = tr(x)/dim
+    x .-= α .* I(dim)
+end
+
 
 function state_ode!(dx, x, p, t)
     y = p.temp
@@ -101,10 +113,10 @@ end
 function heun!(f, y0, p, nt, ys)
     # f(dy, y, p, t)
     dt = 1.0/(nt - 1)
-    y1, y2, y3 = ys # preallocations of typeof(y)
+    y1, y2, y3, y = ys # preallocations of typeof(y)
 
     t = 0.0
-    y = deepcopy(y0)
+    y .= y0
     for _ in 1:nt-1
         f(y1, y, p, t)
         y2 .= y .+ dt .* y1
@@ -121,10 +133,12 @@ end
 function heun!(velocity, y0::OdePoint3, p, nt, ys)
     # velocity(dy, y, p, t)
     dt = 1.0/(nt - 1)    
-    y1, y2, y3 = ys # preallocations of typeof(y)
+    y1, y2, y3, y = ys # preallocations of typeof(y)
 
     t = 0.0
-    y = deepcopy(y0) # make changes in place...
+    y.x .= y0.x
+    y.a .= y0.a
+    y.g .= y0.g
     for _ in 1:nt-1
         velocity(y1, y, p, t) # at t_{i}
         y2.x .= y.x .+ dt .* y1.x
@@ -142,13 +156,15 @@ function heun!(velocity, y0::OdePoint3, p, nt, ys)
 end
 
 function infidelity(x1, q)
-    abs(1 - abs2(dot(q, x1))/length(x1))
+    dim = size(x1, 1)
+    fidelity = abs2(dot(q, x1))/dim^2
+    abs(1.0 - fidelity)
 end
 
 function cost!(hp)
     Pz = hp.PA.Pz
-    x1minusq = hp.PA.v.a
-    0.5*sum(η*abs2(x) + (1 - η)*abs2(y) for (x, y) in zip(Pz, x1minusq))
+    x1 = hp.PA.v.x
+    0.5*sum(η*abs2(x) + (1 - η)*abs2(y - z) for (x, y, z) in zip(Pz, x1, hp.q))
 end
 
 function grad_cost!(hp)
@@ -161,28 +177,28 @@ function grad_cost!(hp)
     if !isapprox(α, 0.0)
         dJ ./= α
     end
+
     return dJ
 end
 
 function forward_evolution!(z, hp)
     v = hp.PA.v
+    x0 = hp.PA.x0
     temp = hp.PA.xtemp
-
     p = (; H=hp.H, z, temp)
-    v.x .= heun!(state_ode!, hp.PA.x0, p, hp.nt, hp.PA.xs)
+
+    v.x .= heun!(state_ode!, x0, p, hp.nt, hp.PA.xs)
 end
 
 function backward_evolution!(z, hp)
     v = hp.PA.v
-    terminal_adjoint!(hp)
-    fill!(v.g, 0)
-
     temp1 = hp.PA.vtemp1
     temp2 = hp.PA.vtemp2
     p = (; H=hp.H, z, temp1, temp2)
-
+    
+    terminal_adjoint!(hp) 
     v1 = heun!(grad_ode!, v, p, hp.nt, hp.PA.vs)
-    v.g .= (v1.g .+ v1.g')./2
+    v.g .= projhermitian!(v1.g)
 end
 
 function update!(z, ρ, hp)
@@ -191,18 +207,24 @@ function update!(z, ρ, hp)
 end
 
 function terminal_adjoint!(hp)
+    q = hp.q
     v = hp.PA.v
     x0 = hp.PA.x0
-    q = hp.q
 
-    # v.a .= x0 .- v.x'*q
+    # state
+    # v.x is set appropriately in forward_evolution!
+    # adjoint
     mul!(v.a, v.x', q, -1, 0)
-    v.a .+= x0
+    v.a .+= x0 # v.a .= x0 .- v.x'*q
+    # gradient
+    fill!(v.g, 0)
+
+    return v
 end
 
 function gradstep!(z, hp)
-    forward_evolution!(z, hp)
-    backward_evolution!(z, hp)
+    forward_evolution!(z, hp) # returns v.x(1)
+    backward_evolution!(z, hp) # returns v.g(1)
     projection!(z, hp)
     J = cost!(hp)
     grad_cost!(hp)
@@ -275,9 +297,7 @@ function linesearch!(z, hp; reference_value=Inf)
 end
 
 function evalcost!(z, hp)
-    v = hp.PA.v
-    forward_evolution!(z, hp)
-    v.a .= v.x .- hp.q
+    forward_evolution!(z, hp) # updates v.x
     projection!(z, hp)
     cost!(hp)
 end
@@ -285,7 +305,7 @@ end
 function metrics(z, gate, hp)
     v = hp.PA.v
     Pz = hp.PA.Pz
-    forward_evolution!(z, hp)
+    forward_evolution!(z, hp) # updates v.x
     IF = infidelity(v.x, gate)
     projection!(z, hp)
     CL = norm(Pz)
@@ -342,30 +362,6 @@ end
 
 function pauli_vector(z, pauli)
     map(σ -> real(dot(z, σ)), pauli)
-end
-
-function hamiltonians(dim; σz=false)
-    vs = [ComplexF64.([1, 1]/sqrt(2)), ComplexF64.([-im, im]/sqrt(2))]
-    Hxy = map(vs) do v
-        map(1:dim-1) do k
-            i = [k, k+1]
-            j = [k+1, k]
-            sparse(i, j, v, dim, dim)
-        end
-    end
-    Hxy = reduce(vcat, Hxy)
-
-    if σz
-        v = ComplexF64.([1, 1]/sqrt(2))
-        Hz = map(1:dim-1) do k
-            i = [k, k+1]
-            j = [k, k+1]
-            sparse(i, j, v, dim, dim)
-        end
-        return vcat(Hz, Hxy...)
-    else
-        return Hxy
-    end
 end
 
 function hamiltonians(dim; σz=false)

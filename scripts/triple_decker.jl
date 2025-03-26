@@ -8,14 +8,18 @@ T = Matrix{ComplexF64}
 V = Matrix{ComplexF64}
 S = T # SparseMatrixCSC{ComplexF64}
 
+
 begin
     gate::T = QFT(dim)
     phase = angle(det(gate)) 
     gate = gate*exp(-im*phase/dim) # unit determinant
     gate_log = im*log(gate)
+    
 
     H::Vector{S} = hamiltonians(dim; σz=false)
     z::V = convert(V, -gate_log)
+    projhermitian!(z)
+    projtraceless!(z)
     preallocs = preallocate(dim, T, V)
 end;
 

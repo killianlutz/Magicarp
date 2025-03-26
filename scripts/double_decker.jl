@@ -13,9 +13,12 @@ begin
     phase = angle(det(gate)) 
     gate = gate*exp(-im*phase/dim) # unit determinant
     gate_log = im*log(gate)
+    
 
     H::Vector{S} = hamiltonians(dim; σz=false)
     z::V = convert(V, -gate_log)
+    projhermitian!(z)
+    projtraceless!(z)
     preallocs = preallocate(dim, T, V)
 end;
 
@@ -37,13 +40,13 @@ CL = Inf64
 ### homotopy
 for k in 1:nη
     @show k
-    η -= δη
+    η = max(η - δη, 0.0)
     q = q*exp_step
     hp = (; H, q, η, nt, PA=preallocs);
 
     for _ in 1:100
         ρ, J = gradstep!(z, hp)
-        if ρ < 1e-10
+        if ρ < 1e-14
             println("stuck after $(count) iterations; aborting...")
             break
         else
@@ -58,7 +61,7 @@ end
 
 for i in 1:500
     ρ, J = gradstep!(z, hp)
-    if ρ < 1e-10
+    if ρ < 1e-14
         println("stuck after $(count) iterations; aborting...")
         break
     else
@@ -74,7 +77,7 @@ begin
     fig = Figure()
     axs = Axis(
         fig[1, 1], 
-        xscale=log10, 
+        xscale=identity, 
         yscale=log10,
         )
     y1 = view(infidelity_hist, 1:count)
