@@ -3,6 +3,8 @@ using Parameters: @with_kw
 using SparseArrays: sparse, SparseMatrixCSC
 using FFTW: ifft
 using Base.Threads
+using LinearAlgebra.BLAS
+using Printf: @printf
 
 @with_kw mutable struct OdePoint3{T<:AbstractMatrix,V<:AbstractMatrix}
     x::T
@@ -52,12 +54,15 @@ function projhermitian!(x)
     x .= (x .+ x')./2 
 end
 
+function projhermitian!(dx, x)
+    dx .= (x .+ x')./2 
+end
+
 function projtraceless!(x)
     dim = size(x, 1)
     α = tr(x)/dim
     x .-= α .* I(dim)
 end
-
 
 function state_ode!(dx, x, p, t)
     y = p.temp
@@ -157,22 +162,27 @@ end
 
 function infidelity(x1, q)
     dim = size(x1, 1)
-    fidelity = abs2(dot(q, x1))/dim^2
+    fidelity = abs(dot(q, x1))/dim
     abs(1.0 - fidelity)
 end
 
 function cost!(hp)
     Pz = hp.PA.Pz
     x1 = hp.PA.v.x
-    0.5*sum(η*abs2(x) + (1 - η)*abs2(y - z) for (x, y, z) in zip(Pz, x1, hp.q))
+    y  = hp.PA.xtemp
+    η  = hp.η
+
+    y .= η.*abs2.(Pz) .+ (1 .- η).*abs2.(x1 .- hp.q)
+    0.5*sum(real, y)
 end
 
 function grad_cost!(hp)
     dJ = hp.PA.dJ
     Pz = hp.PA.Pz
-    g = hp.PA.v.g
-    dJ .= η .* Pz .+ (1 .- η) .* g
+    g  = hp.PA.v.g
+    η  = hp.η
 
+    dJ .= η .* Pz .+ (1 .- η) .* g
     α = norm(dJ)
     if !isapprox(α, 0.0)
         dJ ./= α
@@ -198,7 +208,7 @@ function backward_evolution!(z, hp)
     
     terminal_adjoint!(hp) 
     v1 = heun!(grad_ode!, v, p, hp.nt, hp.PA.vs)
-    v.g .= projhermitian!(v1.g)
+    projhermitian!(v.g, v1.g)
 end
 
 function update!(z, ρ, hp)
@@ -279,7 +289,7 @@ function linesearch!(z, hp; reference_value=Inf)
     ρ_max = 1e1
     interval = (0.0, ρ_max)
     abstol = 1e-10
-    max_iter = 200
+    max_iter = 50
 
     ls = ρ -> begin
         zρ .= z .- ρ .* dJ
@@ -287,8 +297,8 @@ function linesearch!(z, hp; reference_value=Inf)
     end
 
     ρ, val = golden_section_search(ls, interval, abstol, max_iter; reference_value)
-    if val - reference_value ≥ -1e-12
-        ρ_max = ρ_max/100
+    if val - reference_value ≥ -1e-8
+        ρ_max = ρ_max/1_00
         interval = (0.0, ρ_max)
         ρ, val = golden_section_search(ls, interval, abstol, max_iter; reference_value)
     end
@@ -311,6 +321,104 @@ function metrics(z, gate, hp)
     CL = norm(Pz)
     return (; CL, IF)
 end
+
+function toSU(gate)
+    phase = angle(det(gate)) 
+    gate*exp(-im*phase/dim) # unit determinant
+end
+
+function homotopy(gate::T, H::Vector{S}; nη=20, ngrad=100) where {T<:AbstractMatrix, S<:AbstractMatrix}
+    # initial z
+    gate_log = im*log(gate)
+    q::T = one(gate)
+    z::T = convert(T, -gate_log)
+    projhermitian!(z)
+    projtraceless!(z)
+    
+    # homotopy parameters
+    η = 1.0
+    δη = η/nη
+    exp_step::T = exp(-im*gate_log/nη)
+
+    # pre-allocations with q = I slowly reaching 'gate'
+    PA = preallocate(dim, T, T) # ASSUME: V type = T type
+    hp = (; H, q, η, nt, PA);
+    IFhist = Vector{Float64}(undef, nη*ngrad)
+    CLhist = Vector{Float64}(undef, nη*ngrad)
+    
+    ### homotopy
+    count = 0
+    for k in 1:nη
+        # deformation: update q and η
+        q .= q*exp_step
+        η  = max(0.0, η - δη)
+        hp = (; H, q, η, nt, PA);
+    
+        for _ in 1:ngrad
+            ρ, _ = gradstep!(z, hp)
+            CL, IF = metrics(z, gate, hp)
+
+            count += 1
+            IFhist[count] = IF
+            CLhist[count] = CL
+
+            if ρ <= 1e-12
+                println("aborting...")
+                break
+            end
+        end
+
+        IF = IFhist[count]
+        CL = CLhist[count]
+        @printf "iter: %.2f || IF = %.3e || CL = %.3e \n" k/nη IF CL
+    end
+
+    q .= gate
+    hp = (; H, q, η, nt, PA)
+
+    IFhist = view(IFhist, 1:count)
+    CLhist = view(CLhist, 1:count)
+    hist = (IFhist, CLhist)
+    return (; z, hp, hist)
+end
+
+function descent!(z, hp; ngrad=500, IFatol=1e-6, hist=nothing)
+    IFhist = Vector{Float64}(undef, ngrad)
+    CLhist = Vector{Float64}(undef, ngrad)
+
+    if !isnothing(hist)
+        IF, CL = hist
+        count = length(IF)
+        IFhist = [IF; IFhist]
+        CLhist = [CL; CLhist]
+    else
+        count = 0
+    end
+
+    for i in 1:ngrad        
+        ρ, _ = gradstep!(z, hp)
+        CL, IF = metrics(z, hp.q, hp)
+
+        count += 1
+        IFhist[count] = IF
+        CLhist[count] = CL
+
+        if mod(i - 1, 50) == 0
+            @printf "iter: %.2f || IF = %.3e || CL = %.3e \n" i/ngrad IF CL
+        end
+        
+        if IF <= IFatol || ρ <=1e-12
+            println("aborting...")
+            break
+        end
+    end
+
+    IFhist = view(IFhist, 1:count)
+    CLhist = view(CLhist, 1:count)
+    hist = (IFhist, CLhist)
+    return (; z, hp, hist)
+end
+
 
 function heunstep(f, y0, dt)
     # \dot{x} = f(x)
