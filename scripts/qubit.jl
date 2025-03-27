@@ -2,16 +2,25 @@ include("../src/oc_grad.jl")
 using GLMakie
 
 dim = 2
-nt = 200
+nt = 100
 T = Matrix{ComplexF64}
 V = Matrix{ComplexF64}
 S = Matrix{ComplexF64} # SparseMatrixCSC{ComplexF64}
 
 gate::T = toSU(QFT(dim));
 H::Vector{S} = hamiltonians(dim, σz=false);
-z, hp, hist = homotopy(gate, H; nη=20, ngrad=100);
-z, hp, hist = descent!(z, hp; ngrad=5_000, IFatol=1e-8, hist);
-t, x, u = state_control(z, hp)
+
+rule = NAdam()
+z, hp, hist = homotopy(gate, H, rule; nη=20, ngrad=100);
+# z, hp, hist = homotopy(gate, H; nη=20, ngrad=100);
+
+# @load "qubit_qft.jld2"
+
+z, hp, hist = descent!(z, hp, rule; ngrad=5_000, IFatol=1e-5, hist);
+# z, hp, hist = descent!(z, hp; ngrad=5_000, IFatol=1e-5, hist);
+t, x, u = state_control(z, hp);
+
+# @save "qubit_qft.jld2" z hp hist
 
 begin ## HISTORY
     IFhist, CLhist = hist
@@ -23,7 +32,8 @@ begin ## HISTORY
         xscale=log10, 
         yscale=log10,
         xlabel="iterations",
-        ylabel="cost"
+        ylabel="cost",
+        title=L"T = %$(last(CLhist))"
         )
     scatter!(axs, idx, IFhist, color=:purple, label="infidelity")
     scatter!(axs, idx, CLhist, color=:teal, label="gate time")
@@ -34,8 +44,11 @@ begin ## HISTORY
         xlabel=L"s",
         ylabel=L"u_j"
         )
-    scatter!(axs, t, view(U, 1, :), color=:purple, label=L"j=1")
-    scatter!(axs, t, view(U, 2, :), color=:teal, label=L"j=2")
+    rows = enumerate(eachrow(U))
+    colors = [:purple, :teal, :orange]
+    foreach(rows) do (j, u)
+        scatter!(axs, t, u, color=colors[j], label=L"j=%$(j)")
+    end
     axislegend(axs, position=:lb)
     fig
 end
@@ -73,14 +86,20 @@ begin ## BLOCH
         zlabel=L"Z"
         )
     
-    color = cgrad([:blue, :green], 3; categorical=true);
-    sc = scatter!(axs, unormal, color=t, colormap=:deep)
-    arrows!(axs, origin, cpnormal, color=to_color.(color), arrowsize=1/10, alpha=1/10, linewidth=0.05)
+    arrows!(axs, origin, cpnormal, color=:black, arrowsize=1/10, alpha=1/10, linewidth=0.05)
     arrows!(axs, origin, qnormal, color=:orange, arrowsize=1/10, alpha=2/10, linewidth=0.05)
     arrows!(axs, origin, znormal, color=:red, arrowsize=1/10, alpha=2/10, linewidth=0.05)
     arrows!(axs, origin, Pqnormal, color=:orange, arrowsize=1/10, alpha=1/10, linewidth=0.02)
     arrows!(axs, origin, Pznormal, color=:red, arrowsize=1/10, alpha=1/10, linewidth=0.02)
+    
+    usc  = scatter!(axs, unormal, color=t, colormap=:deep)
+    cpsc = scatter!(axs, cpnormal, color=:black)
+    qsc  = scatter!(axs, first(qnormal), color=:orange)
+    zsc  = scatter!(axs, first(znormal), color=:red)
+
     wireframe!(axs, S1, color=:gray, alpha=0.1)
-    Colorbar(fig[1, 2], sc, label=L"t")
+
+    Colorbar(fig[1, 2][1:2, 1], usc, label=L"t")
+    Legend(fig[1, 2][3:4, 1], [cpsc, qsc, zsc], [L"qh_{j}q^\dagger", L"i \log q", L"z"])
     fig
 end

@@ -5,6 +5,10 @@ using FFTW: ifft
 using Base.Threads
 using LinearAlgebra.BLAS
 using Printf: @printf
+using Random: default_rng, seed!
+using Optimisers
+
+seed!(4389074308503)
 
 @with_kw mutable struct OdePoint3{T<:AbstractMatrix,V<:AbstractMatrix}
     x::T
@@ -216,6 +220,12 @@ function update!(z, ρ, hp)
     z .-= ρ .* dJ
 end
 
+function lsearch_update!(z, hp, reference_value)
+    ρ = linesearch!(z, hp; reference_value)
+    update!(z, ρ, hp)
+    return ρ
+end
+
 function terminal_adjoint!(hp)
     q = hp.q
     v = hp.PA.v
@@ -232,15 +242,14 @@ function terminal_adjoint!(hp)
     return v
 end
 
-function gradstep!(z, hp)
+
+function gradient!(z, hp)
     forward_evolution!(z, hp) # returns v.x(1)
-    backward_evolution!(z, hp) # returns v.g(1)
     projection!(z, hp)
     J = cost!(hp)
-    grad_cost!(hp)
-    ρ = linesearch!(z, hp; reference_value=J)
-    update!(z, ρ, hp)
-    return (ρ, J)
+    backward_evolution!(z, hp) # returns v.g(1)
+    dJ = grad_cost!(hp)
+    return (dJ, J)
 end
 
 function golden_section_search(f::Function, interval::NTuple{2,<:Real}, abstol::Real, max_iterations::Integer; reference_value::Real=Inf)
@@ -327,19 +336,21 @@ function toSU(gate)
     gate*exp(-im*phase/dim) # unit determinant
 end
 
-function homotopy(gate::T, H::Vector{S}; nη=20, ngrad=100) where {T<:AbstractMatrix, S<:AbstractMatrix}
+function homotopy(gate::T, H::Vector{S}; nη=20, ngrad=100, verbose=true, rng=default_rng()) where {T<:AbstractMatrix, S<:AbstractMatrix}
     # initial z
     gate_log = im*log(gate)
     q::T = one(gate)
     z::T = convert(T, -gate_log)
+    
+    z .+= randn(rng, eltype(z), size(z))
     projhermitian!(z)
     projtraceless!(z)
     
     # homotopy parameters
     η = 1.0
     δη = η/nη
-    exp_step::T = exp(-im*gate_log/nη)
-
+    δq::T = exp(-im*gate_log/nη)
+    
     # pre-allocations with q = I slowly reaching 'gate'
     PA = preallocate(dim, T, T) # ASSUME: V type = T type
     hp = (; H, q, η, nt, PA);
@@ -350,12 +361,13 @@ function homotopy(gate::T, H::Vector{S}; nη=20, ngrad=100) where {T<:AbstractMa
     count = 0
     for k in 1:nη
         # deformation: update q and η
-        q .= q*exp_step
+        q .= q*δq
         η  = max(0.0, η - δη)
         hp = (; H, q, η, nt, PA);
     
         for _ in 1:ngrad
-            ρ, _ = gradstep!(z, hp)
+            _, J = gradient!(z, hp)
+            ρ = lsearch_update!(z, hp, J)
             CL, IF = metrics(z, gate, hp)
 
             count += 1
@@ -363,14 +375,16 @@ function homotopy(gate::T, H::Vector{S}; nη=20, ngrad=100) where {T<:AbstractMa
             CLhist[count] = CL
 
             if ρ <= 1e-12
-                println("aborting...")
+                verbose ? println("aborting...") : nothing
                 break
             end
         end
 
-        IF = IFhist[count]
-        CL = CLhist[count]
-        @printf "iter: %.2f || IF = %.3e || CL = %.3e \n" k/nη IF CL
+        if verbose 
+            IF = IFhist[count]
+            CL = CLhist[count]
+            @printf "iter: %.2f || IF = %.3e || CL = %.3e \n" k/nη IF CL
+        end
     end
 
     q .= gate
@@ -382,7 +396,63 @@ function homotopy(gate::T, H::Vector{S}; nη=20, ngrad=100) where {T<:AbstractMa
     return (; z, hp, hist)
 end
 
-function descent!(z, hp; ngrad=500, IFatol=1e-6, hist=nothing)
+function homotopy(gate::T, H::Vector{S}, rule; nη=20, ngrad=100, verbose=true, rng=default_rng()) where {T<:AbstractMatrix, S<:AbstractMatrix}
+    # initial z
+    gate_log = im*log(gate)
+    q::T = one(gate)
+    z::T = convert(T, -gate_log)
+    
+    z .+= randn(rng, eltype(z), size(z))
+    projhermitian!(z)
+    projtraceless!(z)
+    states = Optimisers.setup(rule, z)
+    
+    # homotopy parameters
+    η = 1.0
+    δη = η/nη
+    δq::T = exp(-im*gate_log/nη)
+
+    # pre-allocations with q = I slowly reaching 'gate'
+    PA = preallocate(dim, T, T) # ASSUME: V type = T type
+    hp = (; H, q, η, nt, PA);
+    IFhist = Vector{Float64}(undef, nη*ngrad)
+    CLhist = Vector{Float64}(undef, nη*ngrad)
+    
+    ### homotopy
+    count = 0
+    for k in 1:nη
+        # deformation: update q and η
+        q .= q*δq
+        η  = max(0.0, η - δη)
+        hp = (; H, q, η, nt, PA);
+    
+        for _ in 1:ngrad
+            dJ, _ = gradient!(z, hp)
+            states, z = Optimisers.update!(states, z, dJ);
+            CL, IF = metrics(z, gate, hp)
+
+            count += 1
+            IFhist[count] = IF
+            CLhist[count] = CL
+        end
+
+        if verbose
+            IF = IFhist[count]
+            CL = CLhist[count]
+            @printf "iter: %.2f || IF = %.3e || CL = %.3e \n" k/nη IF CL
+        end
+    end
+
+    q .= gate
+    hp = (; H, q, η, nt, PA)
+
+    IFhist = view(IFhist, 1:count)
+    CLhist = view(CLhist, 1:count)
+    hist = (IFhist, CLhist)
+    return (; z, hp, hist)
+end
+
+function descent!(z, hp; ngrad=500, IFatol=1e-6, hist=nothing, verbose=true)
     IFhist = Vector{Float64}(undef, ngrad)
     CLhist = Vector{Float64}(undef, ngrad)
 
@@ -396,19 +466,20 @@ function descent!(z, hp; ngrad=500, IFatol=1e-6, hist=nothing)
     end
 
     for i in 1:ngrad        
-        ρ, _ = gradstep!(z, hp)
+        _, J = gradient!(z, hp)
+        ρ = lsearch_update!(z, hp, J)
         CL, IF = metrics(z, hp.q, hp)
 
         count += 1
         IFhist[count] = IF
         CLhist[count] = CL
 
-        if mod(i - 1, 50) == 0
+        if verbose && mod(i - 1, 50) == 0
             @printf "iter: %.2f || IF = %.3e || CL = %.3e \n" i/ngrad IF CL
         end
         
         if IF <= IFatol || ρ <=1e-12
-            println("aborting...")
+            verbose ? println("aborting...") : nothing
             break
         end
     end
@@ -419,6 +490,44 @@ function descent!(z, hp; ngrad=500, IFatol=1e-6, hist=nothing)
     return (; z, hp, hist)
 end
 
+function descent!(z, hp, rule; ngrad=500, IFatol=1e-6, hist=nothing, verbose=true)
+    IFhist = Vector{Float64}(undef, ngrad)
+    CLhist = Vector{Float64}(undef, ngrad)
+
+    if !isnothing(hist)
+        IF, CL = hist
+        count = length(IF)
+        IFhist = [IF; IFhist]
+        CLhist = [CL; CLhist]
+    else
+        count = 0
+    end
+
+    states = Optimisers.setup(rule, z)
+    for i in 1:ngrad        
+        dJ, _ = gradient!(z, hp)
+        states, z = Optimisers.update!(states, z, dJ);
+        CL, IF = metrics(z, hp.q, hp)
+
+        count += 1
+        IFhist[count] = IF
+        CLhist[count] = CL
+
+        if verbose && mod(i - 1, 50) == 0
+            @printf "iter: %.2f || IF = %.3e || CL = %.3e \n" i/ngrad IF CL
+        end
+        
+        if IF <= IFatol
+            verbose ? println("aborting...") : nothing
+            break
+        end
+    end
+
+    IFhist = view(IFhist, 1:count)
+    CLhist = view(CLhist, 1:count)
+    hist = (IFhist, CLhist)
+    return (; z, hp, hist)
+end
 
 function heunstep(f, y0, dt)
     # \dot{x} = f(x)

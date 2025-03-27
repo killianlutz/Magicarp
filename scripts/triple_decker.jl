@@ -1,6 +1,8 @@
 include("../src/oc_grad.jl")
 using GLMakie
+using Optimisers
 using JLD2
+cd("./sims/")
 
 ##### PERFORMANCES when dim = 10
 # @btime forward_evolution!($z, $hp) # 759.167 μs (0 allocations: 0 bytes)
@@ -16,16 +18,25 @@ using JLD2
 #####
 
 dim = 16
-nt = 100
+nt = 200
 T = Matrix{ComplexF64}
 V = Matrix{ComplexF64} # Hermitian????
 S = Matrix{ComplexF64} # SparseMatrixCSC{ComplexF64}
 
 gate::T = toSU(QFT(dim));
 H::Vector{S} = TDhamiltonians(σz=false);
-z, hp, hist = homotopy(gate, H; nη=20, ngrad=100);
-z, hp, hist = descent!(z, hp; ngrad=5_000, IFatol=1e-6, hist);
-# t, x, u = state_control(z, hp)
+
+rule = Adam(1e-2)
+z, hp, hist = homotopy(gate, H, rule; nη=20, ngrad=200);
+# z, hp, hist = homotopy(gate, H; nη=20, ngrad=100);
+
+# @load "triple_decker_qft.jld2"
+
+z, hp, hist = descent!(z, hp, rule; ngrad=5_000, IFatol=1e-5, hist);
+# z, hp, hist = descent!(z, hp; ngrad=5_000, IFatol=1e-5, hist);
+t, x, u = state_control(z, hp);
+
+# @save "triple_decker_qft.jld2" z hp hist
 
 begin
     IFhist, CLhist = hist
@@ -37,10 +48,24 @@ begin
         xscale=log10, 
         yscale=log10,
         xlabel="iterations",
-        ylabel="cost"
+        ylabel="cost",
+        title=L"T = %$(last(CLhist))"
         )
     scatter!(axs, idx, IFhist, color=:purple, label="infidelity")
     scatter!(axs, idx, CLhist, color=:teal, label="gate time")
     axislegend(axs, position=:lb)
+
+    axs = Axis(fig[1, 2],
+        xlabel=L"s",
+        ylabel=L"u_j"
+        )
+
+    U = reduce(hcat, u)
+    rows = eachrow(U)
+    colgrad = cgrad(:RdBu, length(rows); categorical=true)
+    colors = to_color.(colgrad)
+    foreach(zip(rows, colors)) do (u, c)
+        lines!(axs, t, u, color=c)
+    end
     fig
 end
