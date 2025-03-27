@@ -63,7 +63,6 @@ begin
     S1 = Circle(zero(Point2), 1.0)
     S2 = Sphere(zero(Point3), 1.0)
     cmap = :thermal
-    # cmap = cgrad([:purple, :orange], ngen)
     marker = :cross
     colorscale = log10
 
@@ -71,10 +70,12 @@ begin
     colgrad = cgrad(:viridis, nbins; categorical=true);
     histcolor = to_color.(colgrad)
     strokewidth = 2/10
+
+    showphases = [-π/4, -π/2, -3π/4]
+    phase_colors = [:red, :green, :blue]
+    phase_abstol = 7e-2
 end
 
-using CairoMakie
-GLMakie.activate!()
 begin
     fig = Figure(size=(1_000, 1_000))
     
@@ -127,9 +128,20 @@ begin
             )
         hist!(axh, Ts_out; bins=nbins, direction=:x, normalization=:probability, color=histcolor, strokewidth)
     end
+
+    foreach(showphases, phase_colors) do φ, c
+        δφ = phase[isoutside_equator] .- φ
+        keep = abs.(δφ) .<= phase_abstol
+        vsφ = view(vs_out, keep)
+        vzsφ = view(vzs_out, keep)
+        scatter!(axq, vsφ, color=c)
+        scatter!(axz, vzsφ, color=c)
+    end
+
     foreach(hidespines!, [axq, axz, axt, axh])
     fig
 end
+
 
 #### save results
 # GLMakie.save("magicarpe_stats.png", fig)
