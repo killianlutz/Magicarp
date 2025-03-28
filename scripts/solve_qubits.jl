@@ -11,8 +11,10 @@ V = Matrix{ComplexF64}
 S = Matrix{ComplexF64} # SparseMatrixCSC{ComplexF64}
 pauli = hamiltonians(dim; σz=true)
 
-#### load calculation results
-# @load "solve_qubits.jld2" vs zs
+#### load past calculation results
+# @load "mcstats_xy.jld2" vs zs Ts
+# @load "mcstats_xz.jld2" vs zs Ts
+# @load "mcstats_yz.jld2" vs zs Ts
 
 #### sample generators in R^3
 seed!(378433403380)
@@ -32,31 +34,25 @@ qs = map(h -> cis(Hermitian(-h)), hs)
 #### solve control problem for z
 # zs = Vector{T}(undef, ngen)
 
-verbose = false
+# verbose = false
+# IFabstol = 1e-5
+# rule = NAdam()
 H::Vector{S} = hamiltonians(dim, σz=false);
+H = [pauli[i] for i in [2, 3]]
 # @threads for i in eachindex(zs)
-#     z, hp, hist = homotopy(qs[i], H; nη=20, ngrad=200, verbose);
-#     z, hp, hist = descent!(z, hp; ngrad=5_000, IFatol=1e-5, hist, verbose);
+#     z, hp, hist = homotopy(qs[i], H, rule; nη=20, ngrad=100, verbose);
+#     IFhist, _ = hist
+#     if last(IFhist) > IFabstol
+#         z, hp, hist = descent!(z, hp, rule; ngrad=5_000, IFabstol=1e-5, hist, verbose);
+#     end
 #     zs[i] = z
 # end
 
 #### embed back in the sphere
 vzs = map(z -> su_to_sphere(z, pauli), zs)
-Ts = map(norm_equator, vzs)
-
-#### delete equator (x_3 ≃ 0) due to numerical error prone
-begin
-    abstol = 5e-2
-    isoutside_equator = map(vzs) do vz
-        x3 = last(vz)
-        abs(x3) > abstol ? true : false
-    end
-
-    vs_out = vs[isoutside_equator]
-    vzs_out = vzs[isoutside_equator]
-    Ts_out = Ts[isoutside_equator]
-    color = radii[isoutside_equator]
-end
+# Ts = map(zs) do z
+#     norm([real(dot(h, z)) for h in H])
+# end
 
 #### plot results
 begin
@@ -71,7 +67,7 @@ begin
     histcolor = to_color.(colgrad)
     strokewidth = 2/10
 
-    showphases = [-π/4, -π/2, -3π/4]
+    showphases = [-π/3, -π/2, -2π/3]
     phase_colors = [:red, :green, :blue]
     phase_abstol = 7e-2
 end
@@ -88,7 +84,7 @@ begin
             zlabel=L"x_3",
             title=L"\mathrm{Gate~} q"
             )
-        scatter!(axq, vs_out; color, colormap=cmap, colorscale, marker)
+        scatter!(axq, vs; color=radii, colormap=cmap, colorscale, marker)
         wireframe!(axq, S2, color=:black, alpha=0.1)
     end
 
@@ -101,7 +97,7 @@ begin
             zlabel=L"x_3",
             title=L"\mathrm{Control~} z = z(q)"
             )
-        scatter!(axz, vzs_out; color, colormap=cmap, colorscale, marker)
+        scatter!(axz, vzs; color=radii, colormap=cmap, colorscale, marker)
         wireframe!(axz, S2, color=:black, alpha=0.1)
     end
 
@@ -114,11 +110,12 @@ begin
             zlabel=L"x_3",
             title=L"\mathrm{Time~} T = T(q)"
             )
-        scatter!(axt, vs_out; color=Ts_out, colormap=:viridis, marker)
+        scatter!(axt, vs; color=Ts, colormap=:viridis, marker)
         wireframe!(axt, S2, color=:black, alpha=0.1)
     end
 
     begin
+        meanT = sum(Ts)/length(Ts)
         axh = Axis(
             fig[2, 2], 
             aspect=AxisAspect(1),
@@ -126,14 +123,15 @@ begin
             ylabel=L"T(q)",
             title=L"\mathrm{Frequency~ (10^4~ samples)}"
             )
-        hist!(axh, Ts_out; bins=nbins, direction=:x, normalization=:probability, color=histcolor, strokewidth)
+        hist!(axh, Ts; bins=nbins, direction=:x, normalization=:probability, color=histcolor, strokewidth)
+        hlines!(axh, meanT, color=:black, linestyle=:dot, linewidth=1.0)
     end
 
     foreach(showphases, phase_colors) do φ, c
-        δφ = phase[isoutside_equator] .- φ
+        δφ = phase .- φ
         keep = abs.(δφ) .<= phase_abstol
-        vsφ = view(vs_out, keep)
-        vzsφ = view(vzs_out, keep)
+        vsφ = view(vs, keep)
+        vzsφ = view(vzs, keep)
         scatter!(axq, vsφ, color=c)
         scatter!(axz, vzsφ, color=c)
     end
@@ -144,5 +142,5 @@ end
 
 
 #### save results
-# GLMakie.save("magicarpe_stats.png", fig)
-# @save "solve_qubits.jld2" vs zs
+# GLMakie.save("mcstats_yz.png", fig)
+# @save "mcstats_yz.jld2" vs zs Ts

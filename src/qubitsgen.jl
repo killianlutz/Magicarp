@@ -39,7 +39,3 @@ function sphere_to_su(v, pauli)
     end
     return h
 end
-
-function norm_equator(v)
-    sqrt(abs2(v[1]) + abs2(v[2]))
-end

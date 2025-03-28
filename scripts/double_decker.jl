@@ -16,8 +16,8 @@ z, hp, hist = homotopy(gate, H, rule; nη=20, ngrad=100);
 
 # @load "double_decker_qft.jld2"
 
-z, hp, hist = descent!(z, hp, rule; ngrad=5_000, IFatol=1e-5, hist);
-# z, hp, hist = descent!(z, hp; ngrad=5_000, IFatol=1e-5, hist);
+z, hp, hist = descent!(z, hp, rule; ngrad=5_000, IFabstol=1e-5, hist);
+# z, hp, hist = descent!(z, hp; ngrad=5_000, IFabstol=1e-5, hist);
 t, x, u = state_control(z, hp);
 
 # @save "double_decker_qft.jld2" z hp hist

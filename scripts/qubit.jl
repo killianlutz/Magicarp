@@ -8,16 +8,16 @@ V = Matrix{ComplexF64}
 S = Matrix{ComplexF64} # SparseMatrixCSC{ComplexF64}
 
 gate::T = toSU(QFT(dim));
-H::Vector{S} = hamiltonians(dim, σz=false);
+H::Vector{S} = hamiltonians(dim, σz=true);
 
 rule = NAdam()
 z, hp, hist = homotopy(gate, H, rule; nη=20, ngrad=100);
-# z, hp, hist = homotopy(gate, H; nη=20, ngrad=100);
+# z, hp, hist = homotopy(gate, H; nη=20, ngrad=200);
 
 # @load "qubit_qft.jld2"
 
-z, hp, hist = descent!(z, hp, rule; ngrad=5_000, IFatol=1e-5, hist);
-# z, hp, hist = descent!(z, hp; ngrad=5_000, IFatol=1e-5, hist);
+z, hp, hist = descent!(z, hp, rule; ngrad=5_000, IFabstol=1e-5, hist);
+# z, hp, hist = descent!(z, hp; ngrad=5_000, IFabstol=1e-5, hist);
 t, x, u = state_control(z, hp);
 
 # @save "qubit_qft.jld2" z hp hist

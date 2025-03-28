@@ -337,25 +337,27 @@ function toSU(gate)
 end
 
 function homotopy(gate::T, H::Vector{S}; nη=20, ngrad=100, verbose=true, rng=default_rng()) where {T<:AbstractMatrix, S<:AbstractMatrix}
-    # initial z
     gate_log = im*log(gate)
     q::T = one(gate)
-    z::T = convert(T, -gate_log)
-    
-    z .+= randn(rng, eltype(z), size(z))
-    projhermitian!(z)
-    projtraceless!(z)
-    
+
     # homotopy parameters
     η = 1.0
     δη = η/nη
     δq::T = exp(-im*gate_log/nη)
-    
+
     # pre-allocations with q = I slowly reaching 'gate'
     PA = preallocate(dim, T, T) # ASSUME: V type = T type
     hp = (; H, q, η, nt, PA);
     IFhist = Vector{Float64}(undef, nη*ngrad)
     CLhist = Vector{Float64}(undef, nη*ngrad)
+
+    # initial z
+    z::T = convert(T, -gate_log)
+    if norm(projection!(z, hp)) <= 1e-2*norm(z)
+        z .+= randn(rng, eltype(z), size(z))
+    end
+    projhermitian!(z)
+    projtraceless!(z)
     
     ### homotopy
     count = 0
@@ -397,16 +399,9 @@ function homotopy(gate::T, H::Vector{S}; nη=20, ngrad=100, verbose=true, rng=de
 end
 
 function homotopy(gate::T, H::Vector{S}, rule; nη=20, ngrad=100, verbose=true, rng=default_rng()) where {T<:AbstractMatrix, S<:AbstractMatrix}
-    # initial z
     gate_log = im*log(gate)
     q::T = one(gate)
-    z::T = convert(T, -gate_log)
-    
-    z .+= randn(rng, eltype(z), size(z))
-    projhermitian!(z)
-    projtraceless!(z)
-    states = Optimisers.setup(rule, z)
-    
+
     # homotopy parameters
     η = 1.0
     δη = η/nη
@@ -417,7 +412,17 @@ function homotopy(gate::T, H::Vector{S}, rule; nη=20, ngrad=100, verbose=true, 
     hp = (; H, q, η, nt, PA);
     IFhist = Vector{Float64}(undef, nη*ngrad)
     CLhist = Vector{Float64}(undef, nη*ngrad)
-    
+
+    # initial z
+    z::T = convert(T, -gate_log)
+    if norm(projection!(z, hp)) <= 1e-3
+        @show "project"
+        z .+= randn(rng, eltype(z), size(z))
+    end
+    projhermitian!(z)
+    projtraceless!(z)
+    states = Optimisers.setup(rule, z)
+
     ### homotopy
     count = 0
     for k in 1:nη
@@ -452,7 +457,7 @@ function homotopy(gate::T, H::Vector{S}, rule; nη=20, ngrad=100, verbose=true, 
     return (; z, hp, hist)
 end
 
-function descent!(z, hp; ngrad=500, IFatol=1e-6, hist=nothing, verbose=true)
+function descent!(z, hp; ngrad=500, IFabstol=1e-6, hist=nothing, verbose=true)
     IFhist = Vector{Float64}(undef, ngrad)
     CLhist = Vector{Float64}(undef, ngrad)
 
@@ -478,7 +483,7 @@ function descent!(z, hp; ngrad=500, IFatol=1e-6, hist=nothing, verbose=true)
             @printf "iter: %.2f || IF = %.3e || CL = %.3e \n" i/ngrad IF CL
         end
         
-        if IF <= IFatol || ρ <=1e-12
+        if IF <= IFabstol || ρ <=1e-12
             verbose ? println("aborting...") : nothing
             break
         end
@@ -490,7 +495,7 @@ function descent!(z, hp; ngrad=500, IFatol=1e-6, hist=nothing, verbose=true)
     return (; z, hp, hist)
 end
 
-function descent!(z, hp, rule; ngrad=500, IFatol=1e-6, hist=nothing, verbose=true)
+function descent!(z, hp, rule; ngrad=500, IFabstol=1e-6, hist=nothing, verbose=true)
     IFhist = Vector{Float64}(undef, ngrad)
     CLhist = Vector{Float64}(undef, ngrad)
 
@@ -517,7 +522,7 @@ function descent!(z, hp, rule; ngrad=500, IFatol=1e-6, hist=nothing, verbose=tru
             @printf "iter: %.2f || IF = %.3e || CL = %.3e \n" i/ngrad IF CL
         end
         
-        if IF <= IFatol
+        if IF <= IFabstol
             verbose ? println("aborting...") : nothing
             break
         end
