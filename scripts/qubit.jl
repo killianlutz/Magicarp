@@ -8,10 +8,10 @@ V = Matrix{ComplexF64}
 S = Matrix{ComplexF64} # SparseMatrixCSC{ComplexF64}
 
 gate::T = toSU(QFT(dim));
-H::Vector{S} = hamiltonians(dim, σz=true);
-
+H::Vector{S} = hamiltonians(dim, σz=false);
+gate = exp(-im*pauli[3])
 rule = NAdam()
-z, hp, hist = homotopy(gate, H, rule; nη=20, ngrad=100);
+z, hp, hist = homotopy(gate, H, rule; nη=20, ngrad=300);
 # z, hp, hist = homotopy(gate, H; nη=20, ngrad=200);
 
 # @load "qubit_qft.jld2"

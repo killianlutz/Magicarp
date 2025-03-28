@@ -242,7 +242,6 @@ function terminal_adjoint!(hp)
     return v
 end
 
-
 function gradient!(z, hp)
     forward_evolution!(z, hp) # returns v.x(1)
     projection!(z, hp)
@@ -353,7 +352,7 @@ function homotopy(gate::T, H::Vector{S}; nη=20, ngrad=100, verbose=true, rng=de
 
     # initial z
     z::T = convert(T, -gate_log)
-    if norm(projection!(z, hp)) <= 1e-2*norm(z)
+    if norm(projection!(z, hp)) <= 1e-3
         z .+= randn(rng, eltype(z), size(z))
     end
     projhermitian!(z)
@@ -416,8 +415,7 @@ function homotopy(gate::T, H::Vector{S}, rule; nη=20, ngrad=100, verbose=true, 
     # initial z
     z::T = convert(T, -gate_log)
     if norm(projection!(z, hp)) <= 1e-3
-        @show "project"
-        z .+= randn(rng, eltype(z), size(z))
+        z .+= 10.0.*randn(rng, eltype(z), size(z))
     end
     projhermitian!(z)
     projtraceless!(z)

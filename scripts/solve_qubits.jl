@@ -37,8 +37,7 @@ qs = map(h -> cis(Hermitian(-h)), hs)
 # verbose = false
 # IFabstol = 1e-5
 # rule = NAdam()
-H::Vector{S} = hamiltonians(dim, σz=false);
-H = [pauli[i] for i in [2, 3]]
+# H::Vector{S} = hamiltonians(dim, σz=false);
 # @threads for i in eachindex(zs)
 #     z, hp, hist = homotopy(qs[i], H, rule; nη=20, ngrad=100, verbose);
 #     IFhist, _ = hist
