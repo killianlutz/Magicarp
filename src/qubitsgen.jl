@@ -39,11 +39,3 @@ function sphere_to_su(v, pauli)
     end
     return h
 end
-
-function sample_spunitary(dim; rng=default_rng())
-    A = randn(rng, ComplexF64, dim, dim)
-    Q, _ = qr!(A)
-    φ = angle(det(Q)) 
-
-    return Q*exp(-im*φ/dim) 
-end

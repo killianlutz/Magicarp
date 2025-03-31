@@ -173,11 +173,10 @@ end
 function cost!(hp)
     Pz = hp.PA.Pz
     x1 = hp.PA.v.x
-    y  = hp.PA.xtemp
     η  = hp.η
+    dim2 = length(x1)
 
-    y .= η.*abs2.(Pz) .+ (1 .- η).*abs2.(x1 .- hp.q)
-    0.5*sum(real, y)
+    η*sum(abs2, Pz) + (1 - η)*(dim2 - abs2(dot(x1, hp.q)))
 end
 
 function grad_cost!(hp)
@@ -187,10 +186,6 @@ function grad_cost!(hp)
     η  = hp.η
 
     dJ .= η .* Pz .+ (1 .- η) .* g
-    α = norm(dJ)
-    if !isapprox(α, 0.0)
-        dJ ./= α
-    end
 
     return dJ
 end
@@ -229,13 +224,14 @@ end
 function terminal_adjoint!(hp)
     q = hp.q
     v = hp.PA.v
-    x0 = hp.PA.x0
+    # x0 = hp.PA.x0
 
     # state
     # v.x is set appropriately in forward_evolution!
     # adjoint
-    mul!(v.a, v.x', q, -1, 0)
-    v.a .+= x0 # v.a .= x0 .- v.x'*q
+    mul!(v.a, v.x', q, -1, 0) # = v.x'*q
+    α = -2*tr(v.a)
+    lmul!(α, v.a)
     # gradient
     fill!(v.g, 0)
 
@@ -654,4 +650,12 @@ function QFT(dim)
     x = Matrix(α*I(dim))
     y = map(ifft, eachcol(x))
     reduce(hcat, y)
+end
+
+function sample_spunitary(dim; rng=default_rng())
+    A = randn(rng, ComplexF64, dim, dim)
+    Q, _ = qr!(A)
+    φ = angle(det(Q)) 
+
+    return Q*exp(-im*φ/dim) 
 end
