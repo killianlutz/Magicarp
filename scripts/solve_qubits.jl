@@ -15,17 +15,22 @@ pauli = hamiltonians(dim; σz=true)
 # @load "mcstats_xy.jld2" vs zs Ts
 # @load "mcstats_xz.jld2" vs zs Ts
 # @load "mcstats_yz.jld2" vs zs Ts
+ctrl = [1, 2]
 
 #### sample generators in R^3
 seed!(378433403380)
 ngen = 10_000
-# vs = [sample_sphere() for _ in 1:ngen]
+vs = [sample_sphere() for _ in 1:ngen]
 
 #### stereo proj
 p = stereographic.(vs)
 polar = cartesian_to_polar(p)
 radii = polar[1, :]
 phase = polar[2, :]
+
+#### radius for the generator
+# R = 1.0
+# vs .*= R
 
 #### embed generators in su(2) to generate SU(2) gate
 hs = map(s -> sphere_to_su(s, pauli), vs)
@@ -37,7 +42,7 @@ qs = map(h -> cis(Hermitian(-h)), hs)
 # verbose = false
 # IFabstol = 1e-5
 # rule = NAdam()
-# H::Vector{S} = hamiltonians(dim, σz=false);
+H::Vector{S} = pauli[ctrl];
 # @threads for i in eachindex(zs)
 #     z, hp, hist = homotopy(qs[i], H, rule; nη=20, ngrad=100, verbose);
 #     IFhist, _ = hist
@@ -49,9 +54,7 @@ qs = map(h -> cis(Hermitian(-h)), hs)
 
 #### embed back in the sphere
 vzs = map(z -> su_to_sphere(z, pauli), zs)
-# Ts = map(zs) do z
-#     norm([real(dot(h, z)) for h in H])
-# end
+Ts = map(z -> curve_length(z, H), zs)
 
 #### plot results
 begin
@@ -115,15 +118,17 @@ begin
 
     begin
         meanT = sum(Ts)/length(Ts)
+        medianT = median(Ts)
         axh = Axis(
             fig[2, 2], 
             aspect=AxisAspect(1),
-            xlabel=L"f",
-            ylabel=L"T(q)",
+            xlabel=L"T(q)",
+            ylabel=L"f",
             title=L"\mathrm{Frequency~ (10^4~ samples)}"
             )
-        hist!(axh, Ts; bins=nbins, direction=:x, normalization=:probability, color=histcolor, strokewidth)
-        hlines!(axh, meanT, color=:black, linestyle=:dot, linewidth=1.0)
+        hist!(axh, Ts; bins=nbins, direction=:y, normalization=:probability, color=histcolor, strokewidth)
+        vlines!(axh, meanT, color=:black, linestyle=:dot, linewidth=1.0)
+        vlines!(axh, medianT, color=:black, linestyle=:dash, linewidth=1.0)
     end
 
     foreach(showphases, phase_colors) do φ, c
@@ -141,5 +146,5 @@ end
 
 
 #### save results
-# GLMakie.save("mcstats_yz.png", fig)
-# @save "mcstats_yz.jld2" vs zs Ts
+# GLMakie.save("mcstats_oo.png", fig)
+# @save "mcstats_oo.jld2" vs zs Ts

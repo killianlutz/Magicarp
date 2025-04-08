@@ -3,12 +3,6 @@ using Parameters: @with_kw
 using SparseArrays: sparse, SparseMatrixCSC
 using FFTW: ifft
 using Base.Threads
-using LinearAlgebra.BLAS
-using Printf: @printf
-using Random: default_rng, seed!
-using Optimisers
-
-seed!(4389074308503)
 
 @with_kw mutable struct OdePoint3{T<:AbstractMatrix,V<:AbstractMatrix}
     x::T
@@ -26,14 +20,13 @@ function Base.similar(v::OdePoint3)
     OdePoint3{T, V}(x, a, g)
 end
 
-
 function preallocate(dim, T, V)
     U = OdePoint3{T, V}
 
     x0::T = convert(T, I(dim))
     v::U = OdePoint3{T, V}(similar(x0), similar(x0), convert(V, similar(x0)))
-    xs::Vector{T} = [similar(x0) for _ in 1:4]
-    vs::Vector{U} = [similar(v) for _ in 1:4]
+    xs::Vector{T} = [similar(x0) for _ in 1:3]
+    vs::Vector{U} = [similar(v) for _ in 1:3]
     Pz::V = similar(v.g)
     dJ::V = similar(v.g)
     zρ::V = similar(v.g)
@@ -52,20 +45,6 @@ function projection!(z, hp)
         hp.PA.Pz .+= c .* h
     end
     return hp.PA.Pz
-end
-
-function projhermitian!(x)
-    x .= (x .+ x')./2 
-end
-
-function projhermitian!(dx, x)
-    dx .= (x .+ x')./2 
-end
-
-function projtraceless!(x)
-    dim = size(x, 1)
-    α = tr(x)/dim
-    x .-= α .* I(dim)
 end
 
 function state_ode!(dx, x, p, t)
@@ -122,10 +101,10 @@ end
 function heun!(f, y0, p, nt, ys)
     # f(dy, y, p, t)
     dt = 1.0/(nt - 1)
-    y1, y2, y3, y = ys # preallocations of typeof(y)
+    y1, y2, y3 = ys # preallocations of typeof(y)
 
     t = 0.0
-    y .= y0
+    y = deepcopy(y0)
     for _ in 1:nt-1
         f(y1, y, p, t)
         y2 .= y .+ dt .* y1
@@ -142,12 +121,10 @@ end
 function heun!(velocity, y0::OdePoint3, p, nt, ys)
     # velocity(dy, y, p, t)
     dt = 1.0/(nt - 1)    
-    y1, y2, y3, y = ys # preallocations of typeof(y)
+    y1, y2, y3 = ys # preallocations of typeof(y)
 
     t = 0.0
-    y.x .= y0.x
-    y.a .= y0.a
-    y.g .= y0.g
+    y = deepcopy(y0) # make changes in place...
     for _ in 1:nt-1
         velocity(y1, y, p, t) # at t_{i}
         y2.x .= y.x .+ dt .* y1.x
@@ -165,49 +142,47 @@ function heun!(velocity, y0::OdePoint3, p, nt, ys)
 end
 
 function infidelity(x1, q)
-    dim = size(x1, 1)
-    fidelity = abs(dot(q, x1))/dim
-    abs(1.0 - fidelity)
+    abs(1 - abs2(dot(q, x1))/length(x1))
 end
 
 function cost!(hp)
     Pz = hp.PA.Pz
-    x1 = hp.PA.v.x
-    η  = hp.η
-    dim2 = length(x1)
-
-    η*sum(abs2, Pz) + (1 - η)*(1 - abs2(dot(x1, hp.q))/dim2)
+    x1minusq = hp.PA.v.a
+    0.5*sum(η*abs2(x) + (1 - η)*abs2(y) for (x, y) in zip(Pz, x1minusq))
 end
 
 function grad_cost!(hp)
     dJ = hp.PA.dJ
     Pz = hp.PA.Pz
-    g  = hp.PA.v.g
-    η  = hp.η
-
+    g = hp.PA.v.g
     dJ .= η .* Pz .+ (1 .- η) .* g
 
+    α = norm(dJ)
+    if !isapprox(α, 0.0)
+        dJ ./= α
+    end
     return dJ
 end
 
 function forward_evolution!(z, hp)
     v = hp.PA.v
-    x0 = hp.PA.x0
     temp = hp.PA.xtemp
-    p = (; H=hp.H, z, temp)
 
-    v.x .= heun!(state_ode!, x0, p, hp.nt, hp.PA.xs)
+    p = (; H=hp.H, z, temp)
+    v.x .= heun!(state_ode!, hp.PA.x0, p, hp.nt, hp.PA.xs)
 end
 
 function backward_evolution!(z, hp)
     v = hp.PA.v
+    terminal_adjoint!(hp)
+    fill!(v.g, 0)
+
     temp1 = hp.PA.vtemp1
     temp2 = hp.PA.vtemp2
     p = (; H=hp.H, z, temp1, temp2)
-    
-    terminal_adjoint!(hp) 
+
     v1 = heun!(grad_ode!, v, p, hp.nt, hp.PA.vs)
-    projhermitian!(v.g, v1.g)
+    v.g .= (v1.g .+ v1.g')./2
 end
 
 function update!(z, ρ, hp)
@@ -215,36 +190,25 @@ function update!(z, ρ, hp)
     z .-= ρ .* dJ
 end
 
-function lsearch_update!(z, hp, reference_value)
-    ρ = linesearch!(z, hp; reference_value)
-    update!(z, ρ, hp)
-    return ρ
-end
-
 function terminal_adjoint!(hp)
-    q = hp.q
     v = hp.PA.v
-    dim2 = length(q)
+    x0 = hp.PA.x0
+    q = hp.q
 
-    # state
-    # v.x is set appropriately in forward_evolution!
-    # adjoint
-    mul!(v.a, v.x', q, 1, 0) # = v.x'*q
-    α = -2*conj(tr(v.a))/dim2
-    lmul!(α, v.a)
-    # gradient
-    fill!(v.g, 0)
-
-    return v
+    # v.a .= x0 .- v.x'*q
+    mul!(v.a, v.x', q, -1, 0)
+    v.a .+= x0
 end
 
-function gradient!(z, hp)
-    forward_evolution!(z, hp) # returns v.x(1)
+function gradstep!(z, hp)
+    forward_evolution!(z, hp)
+    backward_evolution!(z, hp)
     projection!(z, hp)
     J = cost!(hp)
-    backward_evolution!(z, hp) # returns v.g(1)
-    dJ = grad_cost!(hp)
-    return (dJ, J)
+    grad_cost!(hp)
+    ρ = linesearch!(z, hp; reference_value=J)
+    update!(z, ρ, hp)
+    return (ρ, J)
 end
 
 function golden_section_search(f::Function, interval::NTuple{2,<:Real}, abstol::Real, max_iterations::Integer; reference_value::Real=Inf)
@@ -293,7 +257,7 @@ function linesearch!(z, hp; reference_value=Inf)
     ρ_max = 1e1
     interval = (0.0, ρ_max)
     abstol = 1e-10
-    max_iter = 50
+    max_iter = 200
 
     ls = ρ -> begin
         zρ .= z .- ρ .* dJ
@@ -301,8 +265,8 @@ function linesearch!(z, hp; reference_value=Inf)
     end
 
     ρ, val = golden_section_search(ls, interval, abstol, max_iter; reference_value)
-    if val - reference_value ≥ -1e-8
-        ρ_max = ρ_max/1_00
+    if val - reference_value ≥ -1e-12
+        ρ_max = ρ_max/100
         interval = (0.0, ρ_max)
         ρ, val = golden_section_search(ls, interval, abstol, max_iter; reference_value)
     end
@@ -311,7 +275,9 @@ function linesearch!(z, hp; reference_value=Inf)
 end
 
 function evalcost!(z, hp)
-    forward_evolution!(z, hp) # updates v.x
+    v = hp.PA.v
+    forward_evolution!(z, hp)
+    v.a .= v.x .- hp.q
     projection!(z, hp)
     cost!(hp)
 end
@@ -319,213 +285,11 @@ end
 function metrics(z, gate, hp)
     v = hp.PA.v
     Pz = hp.PA.Pz
-    forward_evolution!(z, hp) # updates v.x
+    forward_evolution!(z, hp)
     IF = infidelity(v.x, gate)
     projection!(z, hp)
     CL = norm(Pz)
     return (; CL, IF)
-end
-
-function toSU(gate)
-    phase = angle(det(gate)) 
-    gate*exp(-im*phase/dim) # unit determinant
-end
-
-function homotopy(gate::T, H::Vector{S}; nη=20, ngrad=100, verbose=true, rng=default_rng()) where {T<:AbstractMatrix, S<:AbstractMatrix}
-    gate_log = im*log(gate)
-    q::T = one(gate)
-
-    # homotopy parameters
-    η = 1.0
-    δη = η/nη
-    δq::T = exp(-im*gate_log/nη)
-
-    # pre-allocations with q = I slowly reaching 'gate'
-    PA = preallocate(dim, T, T) # ASSUME: V type = T type
-    hp = (; H, q, η, nt, PA);
-    IFhist = Vector{Float64}(undef, nη*ngrad)
-    CLhist = Vector{Float64}(undef, nη*ngrad)
-
-    # initial z
-    z::T = convert(T, -gate_log)
-    if norm(projection!(z, hp)) <= 1e-3
-        z .+= randn(rng, eltype(z), size(z))
-    end
-    projhermitian!(z)
-    projtraceless!(z)
-    
-    ### homotopy
-    count = 0
-    for k in 1:nη
-        # deformation: update q and η
-        q .= q*δq
-        η  = max(0.0, η - δη)
-        hp = (; H, q, η, nt, PA);
-    
-        for _ in 1:ngrad
-            _, J = gradient!(z, hp)
-            ρ = lsearch_update!(z, hp, J)
-            CL, IF = metrics(z, gate, hp)
-
-            count += 1
-            IFhist[count] = IF
-            CLhist[count] = CL
-
-            if ρ <= 1e-12
-                verbose ? println("aborting...") : nothing
-                break
-            end
-        end
-
-        if verbose 
-            IF = IFhist[count]
-            CL = CLhist[count]
-            @printf "iter: %.2f || IF = %.3e || CL = %.3e \n" k/nη IF CL
-        end
-    end
-
-    q .= gate
-    hp = (; H, q, η, nt, PA)
-
-    IFhist = view(IFhist, 1:count)
-    CLhist = view(CLhist, 1:count)
-    hist = (IFhist, CLhist)
-    return (; z, hp, hist)
-end
-
-function homotopy(gate::T, H::Vector{S}, rule; nη=20, ngrad=100, verbose=true, rng=default_rng()) where {T<:AbstractMatrix, S<:AbstractMatrix}
-    gate_log = im*log(gate)
-    q::T = one(gate)
-
-    # homotopy parameters
-    η = 1.0
-    δη = η/nη
-    δq::T = exp(-im*gate_log/nη)
-
-    # pre-allocations with q = I slowly reaching 'gate'
-    PA = preallocate(dim, T, T) # ASSUME: V type = T type
-    hp = (; H, q, η, nt, PA);
-    IFhist = Vector{Float64}(undef, nη*ngrad)
-    CLhist = Vector{Float64}(undef, nη*ngrad)
-
-    # initial z
-    z::T = convert(T, -gate_log)
-    if norm(projection!(z, hp)) <= 1e-3
-        z .+= 10.0.*randn(rng, eltype(z), size(z))
-    end
-    projhermitian!(z)
-    projtraceless!(z)
-    states = Optimisers.setup(rule, z)
-
-    ### homotopy
-    count = 0
-    for k in 1:nη
-        # deformation: update q and η
-        q .= q*δq
-        η  = max(0.0, η - δη)
-        hp = (; H, q, η, nt, PA);
-    
-        for _ in 1:ngrad
-            dJ, _ = gradient!(z, hp)
-            states, z = Optimisers.update!(states, z, dJ);
-            CL, IF = metrics(z, gate, hp)
-
-            count += 1
-            IFhist[count] = IF
-            CLhist[count] = CL
-        end
-
-        if verbose
-            IF = IFhist[count]
-            CL = CLhist[count]
-            @printf "iter: %.2f || IF = %.3e || CL = %.3e \n" k/nη IF CL
-        end
-    end
-
-    q .= gate
-    hp = (; H, q, η, nt, PA)
-
-    IFhist = view(IFhist, 1:count)
-    CLhist = view(CLhist, 1:count)
-    hist = (IFhist, CLhist)
-    return (; z, hp, hist)
-end
-
-function descent!(z, hp; ngrad=500, IFabstol=1e-6, hist=nothing, verbose=true)
-    IFhist = Vector{Float64}(undef, ngrad)
-    CLhist = Vector{Float64}(undef, ngrad)
-
-    if !isnothing(hist)
-        IF, CL = hist
-        count = length(IF)
-        IFhist = [IF; IFhist]
-        CLhist = [CL; CLhist]
-    else
-        count = 0
-    end
-
-    for i in 1:ngrad        
-        _, J = gradient!(z, hp)
-        ρ = lsearch_update!(z, hp, J)
-        CL, IF = metrics(z, hp.q, hp)
-
-        count += 1
-        IFhist[count] = IF
-        CLhist[count] = CL
-
-        if verbose && mod(i - 1, 50) == 0
-            @printf "iter: %.2f || IF = %.3e || CL = %.3e \n" i/ngrad IF CL
-        end
-        
-        if IF <= IFabstol || ρ <=1e-12
-            verbose ? println("aborting...") : nothing
-            break
-        end
-    end
-
-    IFhist = view(IFhist, 1:count)
-    CLhist = view(CLhist, 1:count)
-    hist = (IFhist, CLhist)
-    return (; z, hp, hist)
-end
-
-function descent!(z, hp, rule; ngrad=500, IFabstol=1e-6, hist=nothing, verbose=true)
-    IFhist = Vector{Float64}(undef, ngrad)
-    CLhist = Vector{Float64}(undef, ngrad)
-
-    if !isnothing(hist)
-        IF, CL = hist
-        count = length(IF)
-        IFhist = [IF; IFhist]
-        CLhist = [CL; CLhist]
-    else
-        count = 0
-    end
-
-    states = Optimisers.setup(rule, z)
-    for i in 1:ngrad        
-        dJ, _ = gradient!(z, hp)
-        states, z = Optimisers.update!(states, z, dJ);
-        CL, IF = metrics(z, hp.q, hp)
-
-        count += 1
-        IFhist[count] = IF
-        CLhist[count] = CL
-
-        if verbose && mod(i - 1, 50) == 0
-            @printf "iter: %.2f || IF = %.3e || CL = %.3e \n" i/ngrad IF CL
-        end
-        
-        if IF <= IFabstol
-            verbose ? println("aborting...") : nothing
-            break
-        end
-    end
-
-    IFhist = view(IFhist, 1:count)
-    CLhist = view(CLhist, 1:count)
-    hist = (IFhist, CLhist)
-    return (; z, hp, hist)
 end
 
 function heunstep(f, y0, dt)
@@ -578,6 +342,30 @@ end
 
 function pauli_vector(z, pauli)
     map(σ -> real(dot(z, σ)), pauli)
+end
+
+function hamiltonians(dim; σz=false)
+    vs = [ComplexF64.([1, 1]/sqrt(2)), ComplexF64.([-im, im]/sqrt(2))]
+    Hxy = map(vs) do v
+        map(1:dim-1) do k
+            i = [k, k+1]
+            j = [k+1, k]
+            sparse(i, j, v, dim, dim)
+        end
+    end
+    Hxy = reduce(vcat, Hxy)
+
+    if σz
+        v = ComplexF64.([1, 1]/sqrt(2))
+        Hz = map(1:dim-1) do k
+            i = [k, k+1]
+            j = [k, k+1]
+            sparse(i, j, v, dim, dim)
+        end
+        return vcat(Hz, Hxy...)
+    else
+        return Hxy
+    end
 end
 
 function hamiltonians(dim; σz=false)
@@ -650,16 +438,4 @@ function QFT(dim)
     x = Matrix(α*I(dim))
     y = map(ifft, eachcol(x))
     reduce(hcat, y)
-end
-
-function sample_spunitary(dim; rng=default_rng())
-    A = randn(rng, ComplexF64, dim, dim)
-    Q, _ = qr!(A)
-    φ = angle(det(Q)) 
-
-    return Q*exp(-im*φ/dim) 
-end
-
-function curve_length(z, H)
-    sqrt(sum(abs2, real(dot(h, z)) for h in H))
 end

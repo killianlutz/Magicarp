@@ -39,3 +39,18 @@ function sphere_to_su(v, pauli)
     end
     return h
 end
+
+function median(x)
+    n = length(x)
+    y = sort(x)
+
+    if isodd(n)
+        i = convert(Int, (n + 1)/2)
+        med = y[i]
+    else
+        i = convert(Int, n/2)
+        med = (y[i] + y[i+1])/2
+    end
+    
+    return med
+end

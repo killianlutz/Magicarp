@@ -18,15 +18,15 @@ cd("./sims/")
 #####
 
 dim = 16
-nt = 200
+nt = 100
 T = Matrix{ComplexF64}
-V = Matrix{ComplexF64} # Hermitian????
+V = Matrix{ComplexF64} 
 S = Matrix{ComplexF64} # SparseMatrixCSC{ComplexF64}
 
-gate::T = toSU(QFT(dim));
+gate::T = sample_spunitary(dim)
 H::Vector{S} = TDhamiltonians(σz=false);
 
-rule = Adam(1e-2)
+rule = Adam(2e-2)
 z, hp, hist = homotopy(gate, H, rule; nη=20, ngrad=200);
 # z, hp, hist = homotopy(gate, H; nη=20, ngrad=100);
 

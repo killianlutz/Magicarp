@@ -6,6 +6,7 @@ nt = 100
 T = Matrix{ComplexF64}
 V = Matrix{ComplexF64}
 S = Matrix{ComplexF64} # SparseMatrixCSC{ComplexF64}
+pauli = hamiltonians(dim; σz=true)
 
 gate::T = toSU(QFT(dim));
 H::Vector{S} = hamiltonians(dim, σz=false);
