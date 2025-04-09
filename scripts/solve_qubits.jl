@@ -12,15 +12,17 @@ S = Matrix{ComplexF64} # SparseMatrixCSC{ComplexF64}
 pauli = hamiltonians(dim; σz=true)
 
 #### load past calculation results
-# @load "mcstats_xy.jld2" vs zs Ts
+# @load "mcstats_xy_radius1tenth.jld2" vs zs Ts
+# @load "mcstats_xy_radius10.jld2" vs zs Ts
 # @load "mcstats_xz.jld2" vs zs Ts
 # @load "mcstats_yz.jld2" vs zs Ts
+# @load "mcstats_xy_.jld2" vs zs Ts
 ctrl = [1, 2]
 
 #### sample generators in R^3
 seed!(378433403380)
 ngen = 10_000
-vs = [sample_sphere() for _ in 1:ngen]
+# vs = [sample_sphere() for _ in 1:ngen]
 
 #### stereo proj
 p = stereographic.(vs)

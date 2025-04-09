@@ -545,10 +545,10 @@ function feedback(z, x, H)
 end
 
 function state_control(z, hp)
-    x0 = hp.PA.x0
-    H = hp.H
-    nt = hp.nt
+    state_control(z, hp.H, hp.nt)
+end
 
+function state_control(z, H, nt)
     f = x -> begin
         dx = similar(x)
         fill!(dx, 0)
@@ -562,6 +562,7 @@ function state_control(z, hp)
 
 
     t = range(0.0, 1.0, nt)
+    x0 = one(z)
     x = [similar(x0) for _ in 1:nt]
     u = Vector{Vector{Float64}}(undef, nt)
 

@@ -66,9 +66,9 @@ S = Matrix{ComplexF64} # SparseMatrixCSC{ComplexF64}
 H::Vector{S} = hamiltonians(dim, σz=false);
 
 seed!(3784334033809)
-ngen = 2_500
-qs::Vector{T} = map(_ -> sample_spunitary(dim), 1:ngen);
-zs = Vector{T}(undef, ngen)
+ngen = 3_500
+# qs::Vector{T} = map(_ -> sample_spunitary(dim), 1:ngen);
+# zs = Vector{T}(undef, ngen)
 
 # verbose = false
 # IFabstol = 1e-5
