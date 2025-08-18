@@ -6,7 +6,7 @@ import LinearSolve as ls
 import SciMLOperators as op
 
 # "coarse to fine mesh approach"
-dim = 10
+dim = 9
 nt = 200
 T = Matrix{ComplexF64}
 V = Matrix{ComplexF64}
@@ -98,12 +98,6 @@ function loss_grad!(grad, x, hp)
 
     grad .= x .- Q
 
-    # A = hp.PA.zρ
-    # grad .= x .- Q
-    # mul!(A, x', grad)
-    # A .= (A .- A')./2
-    # mul!(grad, x, A)
-
     return grad
 end
 
@@ -127,10 +121,30 @@ end
 
 function basis_to_coeffs!(ξ, z, hp)
     su_basis = hp.basis
+
     for (i, h) in enumerate(su_basis)
         ξ[i] = real(dot(h, z))
     end
+
     return ξ
+end
+
+function subspace_projection!(ξ, orthog_space)
+    for i in orthog_space
+        ξ[i] = 0.0
+    end
+
+    return ξ
+end
+
+function rand_orthog_space!(orthog_space, full_space)
+    randperm!(full_space)
+
+    for i in eachindex(orthog_space)
+        orthog_space[i] = full_space[i]
+    end
+
+    return orthog_space
 end
 
 function jvp_ode!(dv, v, p, t)
@@ -193,15 +207,20 @@ end
 
 ########## MATRIX FREE
 function gram_operator!(w, δξ, z, p, t)
-    hp, α = p
+    hp, orthog_space, α = p
     δz = hp.PA.zρ
     forward = hp.PA.Pz
+
+    subspace_projection!(δξ, orthog_space)
 
     coeffs_to_basis!(δz, δξ, hp)
     jvp!(forward, z, δz, hp) # A*δz
     vjp!(δz, z, forward, hp) # A'*(A*δz)
     basis_to_coeffs!(w, δz, hp)
     w .+= α .* δξ # regularization
+
+    subspace_projection!(w, orthog_space)
+    nothing
 end
 
 function gram_operator!(δξ, z, p, t)
@@ -221,17 +240,19 @@ function standard_gradient!(p)
     return ∇J
 end
 
-function descent_step!(p, line_search!, val; natgrad=false)
-    ξ, z, hp, LS, _, ∇J, δξ, _, _ = p
+function descent_step!(p, line_search!, val; natgrad=false, orthog_space=[])
+    ξ, z, hp, LS, _, ∇J, δξ, _, μ = p
 
     # loss gradient into coordinates M_d(C)
     ∇J = standard_gradient!(p)
+    subspace_projection!(∇J, orthog_space)
 
     # gradient or nat. gradient step calculation
     # ∇J ./= (1 .+ norm(∇J))
 
     if natgrad
-        LS.A.u .= z # update operator at the new z point
+        LS.A.p = (hp, orthog_space, last(LS.A.p))
+        LS.A.u .= z
         LS.b .= ∇J
         δξ .= ls.solve!(LS) # solve HJ*x = ∇J -> ascent direction
     else
@@ -277,6 +298,11 @@ begin
     μ::Vector{Float64} = similar(δξ)
     IFhist = zeros(10_000)
     CLhist = zeros(10_000)
+
+    full_space = collect(1:n)
+    orthog_space = full_space[1:5]
+    # full_space::Vector{Int64} = collect(1:n)
+    # orthog_space::Vector{Int64} = full_space[1:5]
 end;
 
 begin
@@ -289,10 +315,10 @@ end;
 # and using it a starting gate?
 begin
     z::T = initialguess(dim)
-    z::T = initialguess(dim; z0=projection!(im*log(gate), hp))
+    z::T = initialguess(dim; z0=projection!(-im*log(gate), hp))
     ξ::Vector{Float64} = basis_to_coeffs(z, hp)
 
-    ξ::Vector{Float64} = randn(n)
+    ξ::Vector{Float64} = 5*randn(n)
     coeffs_to_basis!(z, ξ, hp)
 
     val = evalcost!(z, hp)
@@ -308,7 +334,7 @@ begin
     gram = op.FunctionOperator(
         (w, v, z, p, t) -> gram_operator!(w, v, z, p, t), μ, μ; 
         u=z, 
-        p=(hp, α), 
+        p=(hp, orthog_space, α), 
         islinear=true, 
         isconstant=true, 
         issymmetric=true, # true but numerical errors?
@@ -322,9 +348,9 @@ begin
     p = (; ξ, z, hp, LS, ∇ℓ, ∇J, δξ, δz, μ);
     line_eval! = e -> begin
         ρ = 10.0^e
-        p.μ .= p.ξ .- ρ .* p.δξ
-        coeffs_to_basis!(p.z, p.μ, p.hp)
-        evalcost!(p.z, p.hp)
+        μ .= ξ .- ρ .* δξ
+        coeffs_to_basis!(z, μ, hp)
+        evalcost!(z, hp)
     end
     line_search! = refval -> golden_section(line_eval!, refval)
 end
@@ -334,10 +360,16 @@ IFhist[1] = val
 CLhist[1] = curve_length(z, H)
 println("iter. 0 || cost: $(val)")
 
-for _ in 1:100
+
+orthog_space = full_space[1:10]
+for _ in 1:1_000
     i += 1
+
+    rand_orthog_space!(orthog_space, full_space)
+    # orthog_space = []
+
     natgrad = true
-    val = descent_step!(p, line_search!, val; natgrad)
+    val = descent_step!(p, line_search!, val; natgrad, orthog_space)
 
     if i <= length(IFhist)
         IFhist[i] = val
@@ -351,34 +383,10 @@ for _ in 1:100
     end
 end
 
-# linear combination of GN and Grad steps ?
-# ∇J = standard_gradient!(p)
-# LS.A.u .= z # update operator at the new z point
-# LS.b .= ∇J
-# δξ .= ls.solve!(LS) # solve HJ*x = ∇J -> ascent direction
-# val = evalcost!(z, hp)
-# F = (ϕ, e) -> begin
-#     μ .= cos(ϕ).*δξ .+ sin(ϕ).*∇J
-#     ρ = 10.0^e
-#     μ .= ξ .- ρ .* μ
-#     coeffs_to_basis!(z, μ, hp)
-#     evalcost!(z, hp)
-# end
-
-# ϕ = range(-π, π, 60)
-# e = range(-8.0, 0.0, 50)
-# v = [min((F(a, b) - val)/val, -1e-16) for a in ϕ, b in e]
-
-# fig = Figure()
-# axs = Axis(fig[1, 1], ylabel=L"e", xlabel=L"ϕ")
-# hm = heatmap!(axs, ϕ/π, e, v)
-# Colorbar(fig[1, 2], hm)
-# fig
-###########
-
+# post-process
 t, x, u = state_control(z, hp);
 gate_time = curve_length(z, H)
-IF = validate(gate, z, H; nt=1_000)
+IF = validate(gate, z, H; nt=1_500)
 last_idx = min(length(IFhist), i)
 
 begin

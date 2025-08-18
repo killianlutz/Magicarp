@@ -177,22 +177,23 @@ end
 function cost!(hp)
     Pz = hp.PA.Pz
     x1 = hp.PA.v.x
+    q = hp.q
     η  = hp.η
     dim2 = length(x1)
 
-    η*sum(abs2, Pz) + (1 - η)*abs(1 - abs2(dot(x1, hp.q))/dim2)
+    η*sum(abs2, Pz) + (1 - η)*abs(1 - abs2(dot(x1, q))/dim2)
 end
 
-function grad_cost!(hp)
-    dJ = hp.PA.dJ
-    Pz = hp.PA.Pz
-    g  = hp.PA.v.g
-    η  = hp.η
+# function grad_cost!(hp)
+#     dJ = hp.PA.dJ
+#     Pz = hp.PA.Pz
+#     g  = hp.PA.v.g
+#     η  = hp.η
 
-    dJ .= η .* Pz .+ (1 .- η) .* g
+#     dJ .= η .* Pz .+ (1 .- η) .* g
 
-    return dJ
-end
+#     return dJ
+# end
 
 function forward_evolution!(z, hp)
     v = hp.PA.v
@@ -214,16 +215,16 @@ function backward_evolution!(z, dir, hp)
     projhermitian!(v.g, v1.g)
 end
 
-function update!(z, ρ, hp)
-    dJ = hp.PA.dJ
-    z .-= ρ .* dJ
-end
+# function update!(z, ρ, hp)
+#     dJ = hp.PA.dJ
+#     z .-= ρ .* dJ
+# end
 
-function lsearch_update!(z, hp, reference_value)
-    ρ = linesearch!(z, hp; reference_value)
-    update!(z, ρ, hp)
-    return ρ
-end
+# function lsearch_update!(z, hp, reference_value)
+#     ρ = linesearch!(z, hp; reference_value)
+#     update!(z, ρ, hp)
+#     return ρ
+# end
 
 function terminal_adjoint!(dir, hp)
     v = hp.PA.v
@@ -239,11 +240,11 @@ function terminal_adjoint!(dir, hp)
 end
 
 
-function natural_gradient!(z, hp)
-    linearize_model!(z, hp) # compute A
-    δξ = least_squares_fit(hp)    
-    return δξ
-end
+# function natural_gradient!(z, hp)
+#     linearize_model!(z, hp) # compute A
+#     δξ = least_squares_fit(hp)    
+#     return δξ
+# end
 
 # function natural_gradient!(z, hp)
 #     linearize_model!(z, hp) # compute A
@@ -260,66 +261,66 @@ end
 #     A' * (-b)
 # end
 
-function linearize_model!(z, hp)
-    q = hp.q
-    v = hp.PA.v
-    A = hp.PA.Atemp
-    b = hp.PA.btemp
-    dir = similar(v.x)
+# function linearize_model!(z, hp)
+#     q = hp.q
+#     v = hp.PA.v
+#     A = hp.PA.Atemp
+#     b = hp.PA.btemp
+#     dir = similar(v.x)
 
-    for (k, E) in enumerate(hp.basis)
-        forward_evolution!(z, hp)
-        mul!(dir, v.x, E, im, 0) # im*v.x*E -> basis of tangent space
+#     for (k, E) in enumerate(hp.basis)
+#         forward_evolution!(z, hp)
+#         mul!(dir, v.x, E, im, 0) # im*v.x*E -> basis of tangent space
 
-        gradℓ = grad_infidelity(v.x, q)
-        b[k] = -real(dot(dir, gradℓ))
-        backward_evolution!(z, dir, hp) # v.g = adjoint A^* applied to basis direction
-        A[k, :] .= basis_to_coeffs(v.g, hp)
-    end
+#         gradℓ = grad_infidelity(v.x, q)
+#         b[k] = -real(dot(dir, gradℓ))
+#         backward_evolution!(z, dir, hp) # v.g = adjoint A^* applied to basis direction
+#         A[k, :] .= basis_to_coeffs(v.g, hp)
+#     end
 
-    return A # g'(μ)
-end
+#     return A # g'(μ)
+# end
 
-function linearize_model!(z, hp, batch)
-    q = hp.q
-    v = hp.PA.v
-    dir = similar(v.x)
+# function linearize_model!(z, hp, batch)
+#     q = hp.q
+#     v = hp.PA.v
+#     dir = similar(v.x)
     
-    n = length(batch)
-    G = zeros(n, n)
-    b = zeros(n)
-    for (i, k) in enumerate(batch)
-        E = hp.basis[k]
-        forward_evolution!(z, hp)
-        mul!(dir, v.x, E, im, 0) # im*v.x*E
+#     n = length(batch)
+#     G = zeros(n, n)
+#     b = zeros(n)
+#     for (i, k) in enumerate(batch)
+#         E = hp.basis[k]
+#         forward_evolution!(z, hp)
+#         mul!(dir, v.x, E, im, 0) # im*v.x*E
 
-        gradℓ = grad_infidelity(v.x, q)
-        b[i] = -real(dot(dir, gradℓ))
-        backward_evolution!(z, dir, hp) # v.g = adjoint A^* applied to basis direction
-        G[i, :] .= basis_to_coeffs(v.g, hp)[batch]
-    end
+#         gradℓ = grad_infidelity(v.x, q)
+#         b[i] = -real(dot(dir, gradℓ))
+#         backward_evolution!(z, dir, hp) # v.g = adjoint A^* applied to basis direction
+#         G[i, :] .= basis_to_coeffs(v.g, hp)[batch]
+#     end
 
-    return (G, b) # g'(μ)
-end
+#     return (G, b) # g'(μ)
+# end
 
-function natural_gradient!(z, hp, batch_size)
-    dim = size(hp.q, 1)
-    batch = sort(randperm(dim^2-1)[1:batch_size])
-    G, b = linearize_model!(z, hp, batch) # compute G
-    batch_step = G \ b
-    δξ = zeros(length(hp.PA.btemp))
-    for (i, k) in enumerate(batch)
-        δξ[k] = batch_step[i]
-    end
+# function natural_gradient!(z, hp, batch_size)
+#     dim = size(hp.q, 1)
+#     batch = sort(randperm(dim^2-1)[1:batch_size])
+#     G, b = linearize_model!(z, hp, batch) # compute G
+#     batch_step = G \ b
+#     δξ = zeros(length(hp.PA.btemp))
+#     for (i, k) in enumerate(batch)
+#         δξ[k] = batch_step[i]
+#     end
 
-    return δξ
-end
+#     return δξ
+# end
 
-function least_squares_fit(hp)
-    A = hp.PA.Atemp
-    b = hp.PA.btemp
-    A \ b
-end
+# function least_squares_fit(hp)
+#     A = hp.PA.Atemp
+#     b = hp.PA.btemp
+#     A \ b
+# end
 
 function grad_infidelity(x1, q)
     (-2/length(q))*dot(q, x1)*q
@@ -337,68 +338,68 @@ function coeffs_to_basis!(dz, ξ, hp)
     return dz
 end
 
-function golden_section_search(f::Function, interval::NTuple{2,<:Real}, abstol::Real, max_iterations::Integer; reference_value::Real=Inf)
-    a, b = interval
-    γ = oftype(a, (1 + sqrt(5)) / 2) # golden number
+# function golden_section_search(f::Function, interval::NTuple{2,<:Real}, abstol::Real, max_iterations::Integer; reference_value::Real=Inf)
+#     a, b = interval
+#     γ = oftype(a, (1 + sqrt(5)) / 2) # golden number
 
-    c = b - (γ - 1) * (b - a)
-    d = a + (γ - 1) * (b - a)
-    left_value = f(c)
-    right_value = f(d)
+#     c = b - (γ - 1) * (b - a)
+#     d = a + (γ - 1) * (b - a)
+#     left_value = f(c)
+#     right_value = f(d)
 
-    count = 1
-    while (count <= max_iterations) && (b - a > abstol)
-        if left_value <= right_value
-            b = d; d = c;
-            c = b - (γ - 1) * (b - a)
-            # only 1 evaluation of f instead of 2
-            right_value = left_value
-            left_value = f(c)
-        elseif left_value > right_value
-            a = c; c = d;
-            d = a + (γ - 1) * (b - a)
+#     count = 1
+#     while (count <= max_iterations) && (b - a > abstol)
+#         if left_value <= right_value
+#             b = d; d = c;
+#             c = b - (γ - 1) * (b - a)
+#             # only 1 evaluation of f instead of 2
+#             right_value = left_value
+#             left_value = f(c)
+#         elseif left_value > right_value
+#             a = c; c = d;
+#             d = a + (γ - 1) * (b - a)
 
-            left_value = right_value
-            right_value = f(d)
-        end
-        count += 1
-    end
+#             left_value = right_value
+#             right_value = f(d)
+#         end
+#         count += 1
+#     end
 
-    # estimated minimizer 
-    midpoint = (a + b) / 2
-    midpoint_value = f(midpoint)
-    if reference_value > midpoint_value
-        # println("GS ----- steps: $(count) // minimizer estimate: $(midpoint) // Δf = $(reference_value-midpoint_value)")
-        return (midpoint, midpoint_value)
-    else
-        # The line search failed to reduce the reference_value of f
-        # println("GS FAILED ----- steps: $(count) // last estimate: $(midpoint)")
-        return (eps(a), f(eps(a)))
-    end
-end
+#     # estimated minimizer 
+#     midpoint = (a + b) / 2
+#     midpoint_value = f(midpoint)
+#     if reference_value > midpoint_value
+#         # println("GS ----- steps: $(count) // minimizer estimate: $(midpoint) // Δf = $(reference_value-midpoint_value)")
+#         return (midpoint, midpoint_value)
+#     else
+#         # The line search failed to reduce the reference_value of f
+#         # println("GS FAILED ----- steps: $(count) // last estimate: $(midpoint)")
+#         return (eps(a), f(eps(a)))
+#     end
+# end
 
-function linesearch!(z, hp; reference_value=Inf)
-    zρ = hp.PA.zρ
-    dJ = hp.PA.dJ
-    ρ_max = 1e1
-    interval = (0.0, ρ_max)
-    abstol = 1e-10
-    max_iter = 50
+# function linesearch!(z, hp; reference_value=Inf)
+#     zρ = hp.PA.zρ
+#     dJ = hp.PA.dJ
+#     ρ_max = 1e1
+#     interval = (0.0, ρ_max)
+#     abstol = 1e-10
+#     max_iter = 50
 
-    ls = ρ -> begin
-        zρ .= z .- ρ .* dJ
-        evalcost!(zρ, hp)
-    end
+#     ls = ρ -> begin
+#         zρ .= z .- ρ .* dJ
+#         evalcost!(zρ, hp)
+#     end
 
-    ρ, val = golden_section_search(ls, interval, abstol, max_iter; reference_value)
-    if val - reference_value ≥ -1e-8
-        ρ_max = ρ_max/1_00
-        interval = (0.0, ρ_max)
-        ρ, val = golden_section_search(ls, interval, abstol, max_iter; reference_value)
-    end
+#     ρ, val = golden_section_search(ls, interval, abstol, max_iter; reference_value)
+#     if val - reference_value ≥ -1e-8
+#         ρ_max = ρ_max/1_00
+#         interval = (0.0, ρ_max)
+#         ρ, val = golden_section_search(ls, interval, abstol, max_iter; reference_value)
+#     end
 
-    return ρ
-end
+#     return ρ
+# end
 
 function evalcost!(z, hp)
     forward_evolution!(z, hp) # updates v.x
