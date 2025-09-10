@@ -8,6 +8,7 @@ using Random: default_rng, seed!
 
 rng = default_rng()
 seed!(rng, 23902)
+isdir("sims") ? nothing : mkdir("sims")
 
 begin
     include("./parameters.jl")

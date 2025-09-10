@@ -28,8 +28,10 @@ begin
 end;
 
 ### loop over samples and save results
+isdir("sims") ? nothing : mkdir("sims")
 n_samples = 50 # number of random gates 
 retcodes = zeros(Int, n_samples)
+
 for i in 1:n_samples
     gate .= sample_spunitary(dim; rng)
     hp.q .= gate
