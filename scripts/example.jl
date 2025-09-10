@@ -8,6 +8,7 @@ using Random: default_rng, seed!
 
 rng = default_rng()
 seed!(rng, 23902)
+isdir("sims") ? nothing : mkdir("sims")
 
 ### preallocate stuff
 begin
@@ -28,7 +29,6 @@ begin
 end;
 
 ### loop over samples and save results
-isdir("sims") ? nothing : mkdir("sims")
 n_samples = 50 # number of random gates 
 retcodes = zeros(Int, n_samples)
 
@@ -56,6 +56,6 @@ fig = postprocess(t, u, IFval, IF, GT)
 
 ### retrieve gate times 
 GTs = map(1:n_samples) do i
-    @load "./sims/4_xy_$(i).jld2" GT
+    GT = JLD2.load("./sims/4_xy_$(i).jld2")["GT"]
     GT[end]
 end
