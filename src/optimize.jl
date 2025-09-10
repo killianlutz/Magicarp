@@ -46,7 +46,7 @@ function optimize!(p, lsearch_p;
             if with_reset & (i % 50 == 0)
                 if is_stuck(IF, i+1; window=50, reltol=1e-2) 
                     println("///// RESET /////")
-                    cost, gtime = start_over(p; rng)
+                    cost, gtime = restart(p; rng)
                 end
             end
         end
@@ -182,10 +182,11 @@ function is_stuck(IF, last_index; window=20, reltol=1.0)
     end
 end
 
-function start_over(p; rng=default_rng())
+function restart(p; rng=default_rng())
     ξ, z, hp = p.ξ, p.z, p.hp
 
-    ξ .= randn(rng, size(ξ))
+    randn!(rng, ξ)
+    ξ ./= sqrt(length(ξ))
     coeffs_to_basis!(z, ξ, hp)
     
     cost = evalcost!(z, hp)
