@@ -14,7 +14,7 @@ isdir("sims") ? nothing : mkdir("sims")
 begin
     include("./parameters.jl")
 
-    graph = linear_graph(dim) #TDgraph()
+    graph = dim == 16 ? TDgraph() : linear_graph(dim)
     H::Vector{T} = hamiltonians(dim, graph; σz=false); # control hamiltonians
     
     gate::T = one(first(H))                          # target  gate
