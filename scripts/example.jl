@@ -12,10 +12,10 @@ begin
     include("./parameters.jl")
 
     n_samples = 10 # number of gates to be compiled
-    gates = map(rng -> sample_spunitary(dim; rng), rngs)
 
     rngs = map(i -> MersenneTwister(2678923 + i), 1:n_samples)
     retcodes = zeros(Int, n_samples) # success ?
+    gates = map(rng -> sample_spunitary(dim; rng), rngs)
 
     graph = dim == 16 ? TDgraph() : linear_graph(dim)
     H::Vector{T} = hamiltonians(dim, graph; σz=false); # control hamiltonians

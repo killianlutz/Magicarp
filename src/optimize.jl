@@ -86,7 +86,7 @@ function optimize!(p, lsearch_p, mesh_schedule;
     retcode = 0
     P = deepcopy(p)
     for nt in nt_list
-        if isvalidate(P, nt_check, IFabstol)
+        if isvalidate(P, nt_check, IFabstol, verbose_every)
             retcode = 1
             println("###### success || IFval <= IFabstol")
             break
@@ -105,9 +105,11 @@ function optimize!(p, lsearch_p, mesh_schedule;
     return (; history, retcode)
 end
 
-function isvalidate(p, nt_check, IFabstol)
+function isvalidate(p, nt_check, IFabstol, verbose)
     IFval = validate(p.z, p.hp; nt=nt_check)
-    @printf ">>>>> validation || IF = %.4e \n" IFval
+    if verbose > 0
+        @printf ">>>>> validation || IF = %.4e \n" IFval
+    end
     return IFval <= IFabstol
 end
 
