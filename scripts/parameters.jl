@@ -1,8 +1,8 @@
 begin
-    dim = 4        # qudit dimension
+    dim = 4         # qudit dimension
     n = dim^2 - 1   # su(d) dimension
     nt = 200        # uniform mesh
-    T = Matrix{ComplexF64}
+    T = Matrix{ComplexF64} # matrix type
 
     # natural gradient 
     natgrad = true        # standard versus natural gradient step
@@ -16,7 +16,7 @@ begin
         )
 
     # descent
-    nsteps = 1_000       # iteration per mesh size
+    nsteps = 1_000    # iteration per mesh size
     IFabstol = 1e-4
     dropout = 0       # = 0  <-> no dropout
     verbose_every = 5 # = -2 <-> no verbose

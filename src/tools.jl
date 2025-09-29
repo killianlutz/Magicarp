@@ -55,11 +55,9 @@ end
 
 function basis_to_coeffs!(ξ, z, hp)
     su_basis = hp.basis
-
     for (i, h) in enumerate(su_basis)
         ξ[i] = real(dot(h, z))
     end
-
     return ξ
 end
 
