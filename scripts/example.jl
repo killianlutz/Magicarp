@@ -5,18 +5,20 @@ include("../src/NaturalDescent.jl")
 using .NaturalDescent # local module
 using JLD2: @save, @load
 using Random
-using Base.Threads
+
+using Base.Threads # easy parallelization
 
 begin
     include("./parameters.jl")
 
-    n_samples = 20 # number of random gates 
+    n_samples = 10 # number of gates to be compiled
+    gates = map(rng -> sample_spunitary(dim; rng), rngs)
+
     rngs = map(i -> MersenneTwister(2678923 + i), 1:n_samples)
     retcodes = zeros(Int, n_samples) # success ?
 
     graph = dim == 16 ? TDgraph() : linear_graph(dim)
     H::Vector{T} = hamiltonians(dim, graph; σz=false); # control hamiltonians
-    gates = map(rng -> sample_spunitary(dim; rng), rngs)
 end;
 
 ### preallocate memory for each available threads
@@ -58,13 +60,20 @@ let
     end
 
     p = first(problems)
-    rng = first(rngs)
+    rng = Random.default_rng()
+
     initprob!(p, rng, 1)
+
+    # problem initialized with a local minimizer
+    randn!(rng, p.ξ)
+    coeffs_to_basis!(p.z, p.ξ, p.hp)
+    p.hp.q .= final_state!(p.z, p.hp)
+
     solve_save!(p, rng, 1)
 end
 
 ### loop over samples in parallel and save results
-Threads.@threads :dynamic for i in 1:n_samples
+Threads.@threads for i in 1:n_samples
     p = problems[Threads.threadid()] # use thread specific memory
     rng = rngs[i]
     
@@ -73,7 +82,8 @@ Threads.@threads :dynamic for i in 1:n_samples
 end
 
 ### check results
-@load "./sims/4_xy_20.jld2"
+dim = 16
+@load "./sims/$(dim)_xy_2.jld2" gate z ξ hp IF GT retcode
 
 t, x, u = state_control(z, hp; nt=2_000);
 gate_time = gatetime(z, hp)
@@ -83,6 +93,10 @@ fig = postprocess(t, u, IFval, IF, GT)
 
 ### retrieve gate times 
 GTs = map(1:n_samples) do i
-    @load "./sims/4_xy_$(i).jld2" GT
-    GT[end]
+    if isfile("./sims/$(dim)_xy_$(i).jld2")
+        @load "./sims/$(dim)_xy_$(i).jld2" GT
+        GT[end]
+    else
+        missing
+    end
 end
