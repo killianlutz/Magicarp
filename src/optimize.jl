@@ -30,7 +30,10 @@ function optimize!(p, lsearch_p;
     line_search! = setup_linesearch(p, lsearch_p)
 
 
-    @printf "iter: %.2f || IF = %.4e || GT = %.4e \n" 0 cost gtime
+    if verbose_every > 0
+        @printf "iter: %.2f || IF = %.4e || GT = %.4e \n" 0 cost gtime
+    end
+
     if cost > IFabstol
         for i in 1:nsteps
             rand_orthog_space!(orthog_space, full_space; rng)
@@ -45,7 +48,7 @@ function optimize!(p, lsearch_p;
 
             if with_reset & (i % 50 == 0)
                 if is_stuck(IF, i+1; window=50, reltol=1e-2) 
-                    println("///// RESET /////")
+                    verbose_every > 0 ? println("///// RESET /////") : nothing
                     cost, gtime = restart(p; rng)
                 end
             end
@@ -88,7 +91,7 @@ function optimize!(p, lsearch_p, mesh_schedule;
             println("###### success || IFval <= IFabstol")
             break
         else
-            println("***** refining mesh || nt = $(nt)")
+            verbose_every > 0 ? println("***** refining mesh || nt = $(nt)") : nothing
             P = refine_mesh!(P, nt)
             history = optimize!(P, lsearch_p; descent_p..., past_history=history, rng)
         end
@@ -292,7 +295,7 @@ function golden_section(f::Function, p; reference_value::Real=Inf)
 end
 
 function isdone(i, nsteps, every, cost, gtime, IFabstol)
-    if mod(i, every) == 0
+    if every > 0 && mod(i, every) == 0
         fraction = i/nsteps
         @printf "iter: %.2f || IF = %.4e || GT = %.4e \n" fraction cost gtime
     end    
