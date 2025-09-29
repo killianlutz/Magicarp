@@ -55,7 +55,7 @@ end
 
 ### warm-up (compilation)
 let
-    @Threads.threads :dynamic for i in 1:n_threads
+    @Threads.threads for i in 1:n_threads
         nothing
     end
 
