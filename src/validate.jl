@@ -4,7 +4,7 @@ function feedback(z, x, H)
     end
 end
 
-function schrodinger(dx, x, p, _)
+function schrodinger!(dx, x, p, _)
     fill!(dx, 0)
     z, H = p
 
@@ -24,7 +24,7 @@ function solve_schrodinger(z, H, nt, saveat)
     x0 = one(z)
     tspan = (0.0, 1.0)
 
-    ode = ODEProblem(schrodinger, x0, tspan, p)
+    ode = ODEProblem(schrodinger!, x0, tspan, p)
     return solve(ode; saveat, dt, dtmax)
 end
 

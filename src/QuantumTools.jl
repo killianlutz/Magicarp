@@ -9,6 +9,7 @@ export hamiltonians, subasis
 export state_control
 export gatetime
 export validate
+export infidelity
 
 using FFTW
 using LinearAlgebra

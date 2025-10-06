@@ -84,20 +84,18 @@ function optimize!(p, lsearch_p, mesh_schedule;
     
     # finer and finer mesh
     retcode = 0
-    P = deepcopy(p)
+    
     for nt in nt_list
-        if isvalidate(P, nt_check, IFabstol, verbose_every)
+        if isvalidate(p, nt_check, IFabstol, verbose_every)
             retcode = 1
             println("###### success || IFval <= IFabstol")
             break
         else
             verbose_every > 0 ? println("***** refining mesh || nt = $(nt)") : nothing
-            P = refine_mesh!(P, nt)
-            history = optimize!(P, lsearch_p; descent_p..., past_history=history, rng)
+            p = refine_mesh!(p, nt)
+            history = optimize!(p, lsearch_p; descent_p..., past_history=history, rng)
         end
     end
-    p.z .= P.z
-    p.ξ .= P.ξ
 
     if retcode == 0
         println("###### failure || IFval > IFabstol")
@@ -162,14 +160,16 @@ function next_point!(p, line_search!, cost; rng=default_rng())
 end
 
 function refine_mesh!(p, nt)
+    # create new namedTuple hyperparameters hp
+    # refining mesh without allocating new arrays
     ξ, z, hp = p.ξ, p.z, p.hp
-    regularization = last(p.LS.A.p)
-    dim = size(z, 1)
-    T = typeof(z)
+    
+    H, q, basis, η, PA = hp.H, hp.q, hp.basis, hp.η, hp.PA
+    hp = (; H, q, basis, η, nt, PA) # ONLY CHANGE: finer mesh dt=1/nt
 
-    hp = hyperparameters(hp.q, hp.H; η=0.0, nt); # finer mesh dt=1/nt
-    PA = preallocate(dim, T)
-    LS = setup_leastsquares(z, hp, PA; regularization) # necessary
+    ∇ℓ, ∇J, δξ, δz, μ = p.∇ℓ, p.∇J, p.δξ, p.δz, p.μ
+    PA = (; ∇ℓ, ∇J, δξ, δz, μ) # kept identical
+    LS = p.LS # kept identical
 
     p = (; ξ, z, hp, LS, PA...)
     return p

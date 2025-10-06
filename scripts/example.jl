@@ -28,7 +28,7 @@ problems = map(1:n_threads) do i
     hp = hyperparameters(gate, H; η=0.0, nt);
 
     z::T = zeros(ComplexF64, dim, dim)                 # g matrix
-    ξ::Vector{Float64} = randn(rngs[i], n)             # coefficients of g in su(d) basis
+    ξ::Vector{Float64} = randn(n)             # coefficients of g in su(d) basis
 
     PA = preallocate(dim, T)
     LS = setup_leastsquares(z, hp, PA; regularization)
@@ -46,6 +46,7 @@ initprob! = (p, rng, i) -> begin
 end
 
 solve_save! = (p, rng, i) -> begin
+    refine_mesh!(p, nt)
     history, retcode = optimize!(p, lsearch_p, mesh_schedule; descent_p..., rng);
     IF, GT = history
     @save "./sims/$(dim)_xy_$(i).jld2" gate=p.hp.q z=p.z ξ=p.ξ hp=p.hp IF GT retcode
