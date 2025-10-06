@@ -11,7 +11,7 @@ using Base.Threads # easy parallelization
 begin
     include("./parameters.jl")
 
-    n_samples = 10 # number of gates to be compiled
+    n_samples = 100 # number of gates to be compiled
 
     rngs = map(i -> MersenneTwister(2678923 + i), 1:n_samples)
     retcodes = zeros(Int, n_samples) # success ?
@@ -82,8 +82,8 @@ Threads.@threads for i in 1:n_samples
 end
 
 ### check results
-dim = 16
-@load "./sims/$(dim)_xy_2.jld2" gate z ξ hp IF GT retcode
+dim = 4
+@load "./sims/$(dim)_xy_1.jld2" gate z ξ hp IF GT retcode
 
 t, x, u = state_control(z, hp; nt=2_000);
 gate_time = gatetime(z, hp)
