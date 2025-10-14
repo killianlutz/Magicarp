@@ -1,5 +1,5 @@
 begin
-    dim = 4         # qudit dimension
+    dim = 16         # qudit dimension
     n = dim^2 - 1   # su(d) dimension
     nt = 200        # uniform mesh
     T = Matrix{ComplexF64} # matrix type

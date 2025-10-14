@@ -80,10 +80,10 @@ function optimize!(p, lsearch_p, mesh_schedule;
     descent_p = (; IFabstol, nsteps, natgrad, dropout, verbose_every, with_reset)
     nt_list, nt_check = mesh_schedule
 
-    history = optimize!(p, lsearch_p; descent_p..., past_history, rng)
-    
     # finer and finer mesh
     retcode = 0
+
+    history = optimize!(p, lsearch_p; descent_p..., past_history, rng)
     
     for nt in nt_list
         if isvalidate(p, nt_check, IFabstol, verbose_every)

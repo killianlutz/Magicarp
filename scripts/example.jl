@@ -8,14 +8,16 @@ using Random
 
 using Base.Threads # easy parallelization
 
+@load "./fails/hard_fail.jld2" to_compile
 begin
     include("./parameters.jl")
 
-    n_samples = 100 # number of gates to be compiled
+    n_samples = 10 # number of gates to be compiled
 
     rngs = map(i -> MersenneTwister(2678923 + i), 1:n_samples)
     retcodes = zeros(Int, n_samples) # success ?
-    gates = map(rng -> sample_spunitary(dim; rng), rngs)
+    gates = to_compile[:, 1]
+    # gates = map(rng -> sample_spunitary(dim; rng), rngs)
 
     graph = dim == 16 ? TDgraph() : linear_graph(dim)
     H::Vector{T} = hamiltonians(dim, graph; σz=false); # control hamiltonians
@@ -49,7 +51,7 @@ solve_save! = (p, rng, i) -> begin
     refine_mesh!(p, nt)
     history, retcode = optimize!(p, lsearch_p, mesh_schedule; descent_p..., rng);
     IF, GT = history
-    @save "./sims/$(dim)_xy_$(i).jld2" gate=p.hp.q z=p.z ξ=p.ξ hp=p.hp IF GT retcode
+    @save "./sims/check_$(dim)_xy_$(i).jld2" gate=p.hp.q z=p.z ξ=p.ξ hp=p.hp IF GT retcode
     
     return retcode
 end
@@ -74,7 +76,8 @@ let
 end
 
 ### loop over samples in parallel and save results
-Threads.@threads for i in 1:n_samples
+# Threads.@threads for i in 1:n_samples
+Threads.@threads for i in 3:3
     p = problems[Threads.threadid()] # use thread specific memory
     rng = rngs[i]
     
@@ -83,8 +86,8 @@ Threads.@threads for i in 1:n_samples
 end
 
 ### check results
-dim = 4
-@load "./sims/$(dim)_xy_1.jld2" gate z ξ hp IF GT retcode
+dim = 16
+@load "./sims/check_$(dim)_xy_3.jld2" gate z ξ hp IF GT retcode
 
 t, x, u = state_control(z, hp; nt=2_000);
 gate_time = gatetime(z, hp)
