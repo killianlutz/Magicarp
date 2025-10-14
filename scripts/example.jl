@@ -51,7 +51,7 @@ solve_save! = (p, rng, i) -> begin
     refine_mesh!(p, nt)
     history, retcode = optimize!(p, lsearch_p, mesh_schedule; descent_p..., rng);
     IF, GT = history
-    @save "./sims/check_$(dim)_xy_$(i).jld2" gate=p.hp.q z=p.z ξ=p.ξ hp=p.hp IF GT retcode
+    @save "./sims/$(dim)_xy_$(i).jld2" gate=p.hp.q z=p.z ξ=p.ξ hp=p.hp IF GT retcode
     
     return retcode
 end
@@ -87,7 +87,7 @@ end
 
 ### check results
 dim = 16
-@load "./sims/check_$(dim)_xy_3.jld2" gate z ξ hp IF GT retcode
+@load "./sims/$(dim)_xy_3.jld2" gate z ξ hp IF GT retcode
 
 t, x, u = state_control(z, hp; nt=2_000);
 gate_time = gatetime(z, hp)
