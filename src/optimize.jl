@@ -79,27 +79,34 @@ function optimize!(p, lsearch_p, mesh_schedule;
         )
     descent_p = (; IFabstol, nsteps, natgrad, dropout, verbose_every, with_reset)
     nt_list, nt_check = mesh_schedule
-
-    # finer and finer mesh
     retcode = 0
 
+    # run optimizer once
     history = optimize!(p, lsearch_p; descent_p..., past_history, rng)
     
-    for nt in nt_list
-        if isvalidate(p, nt_check, IFabstol, verbose_every)
-            retcode = 1
-            println("###### success || IFval <= IFabstol")
-            break
-        else
+    # check validation with independant solver
+    if isvalidate(p, nt_check, IFabstol, verbose_every)
+        retcode = 1
+    else
+        # refine mesh until validation check holds
+        for nt in nt_list
             verbose_every > 0 ? println("***** refining mesh || nt = $(nt)") : nothing
             p = refine_mesh!(p, nt)
             history = optimize!(p, lsearch_p; descent_p..., past_history=history, rng)
+
+            if isvalidate(p, nt_check, IFabstol, verbose_every)
+                retcode = 1
+                break
+            end
         end
     end
 
     if retcode == 0
         println("###### failure || IFval > IFabstol")
+    else
+        println("###### success || IFval <= IFabstol")
     end
+
     return (; history, retcode)
 end
 

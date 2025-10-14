@@ -19,7 +19,7 @@ begin
     nsteps = 1_000    # iteration per mesh size
     IFabstol = 1e-4
     dropout = 0       # = 0  <-> no dropout
-    verbose_every = -2 # = -2 <-> no verbose
+    verbose_every = 5 # = -2 <-> no verbose
     with_reset = true # start over gain if IF threshold over 100 iterations
     descent_p = (; IFabstol, nsteps, natgrad, dropout, verbose_every, with_reset)
 
