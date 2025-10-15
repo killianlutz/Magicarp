@@ -8,7 +8,6 @@ using Random
 
 using Base.Threads # easy parallelization
 
-@load "./fails/hard_fail.jld2" to_compile
 begin
     include("./parameters.jl")
 
@@ -16,8 +15,7 @@ begin
 
     rngs = map(i -> MersenneTwister(2678923 + i), 1:n_samples)
     retcodes = zeros(Int, n_samples) # success ?
-    gates = to_compile[:, 1]
-    # gates = map(rng -> sample_spunitary(dim; rng), rngs)
+    gates = map(rng -> sample_spunitary(dim; rng), rngs)
 
     graph = dim == 16 ? TDgraph() : linear_graph(dim)
     H::Vector{T} = hamiltonians(dim, graph; σz=false); # control hamiltonians
@@ -76,8 +74,15 @@ let
 end
 
 ### loop over samples in parallel and save results
-# Threads.@threads for i in 1:n_samples
-Threads.@threads for i in 3:3
+Threads.@threads for i in 1:n_samples
+    p = problems[Threads.threadid()] # use thread specific memory
+    rng = rngs[i]
+    
+    initprob!(p, rng, i)
+    retcodes[i] = solve_save!(p, rng, i)
+end
+
+for i in 1:n_samples
     p = problems[Threads.threadid()] # use thread specific memory
     rng = rngs[i]
     
