@@ -34,7 +34,7 @@ function optimize!(p, lsearch_p;
         @printf "iter: %.2f || IF = %.4e || GT = %.4e \n" 0 cost gtime
     end
 
-    if cost > IFabstol
+    if cost > 0.9*IFabstol
         for i in 1:nsteps
             rand_orthog_space!(orthog_space, full_space; rng)
             cost = descent_step!(p, line_search!, cost; natgrad, orthog_space, rng)

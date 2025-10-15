@@ -178,9 +178,8 @@ function cost!(hp)
     x1 = hp.PA.v.x
     q = hp.q
     η  = hp.η
-    dim2 = length(x1)
 
-    η*sum(abs2, Pz) + (1 - η)*abs(1 - abs2(dot(x1, q))/dim2)
+    η*sum(abs2, Pz) + (1 - η)*infidelity(x1, q)
 end
 
 function evalcost!(z, hp)

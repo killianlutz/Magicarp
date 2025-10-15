@@ -82,17 +82,9 @@ Threads.@threads for i in 1:n_samples
     retcodes[i] = solve_save!(p, rng, i)
 end
 
-for i in 1:n_samples
-    p = problems[Threads.threadid()] # use thread specific memory
-    rng = rngs[i]
-    
-    initprob!(p, rng, i)
-    retcodes[i] = solve_save!(p, rng, i)
-end
-
 ### check results
-dim = 16
-@load "./sims/$(dim)_xy_3.jld2" gate z ξ hp IF GT retcode
+dim = 6
+@load "./sims/$(dim)_xy_10.jld2" gate z ξ hp IF GT retcode
 
 t, x, u = state_control(z, hp; nt=2_000);
 gate_time = gatetime(z, hp)
