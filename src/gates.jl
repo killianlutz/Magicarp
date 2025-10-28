@@ -58,6 +58,14 @@ end
 
 function sample_spunitary(dim; rng=default_rng())
     A = randn(rng, ComplexF64, dim, dim)
-    Q, _ = qr!(A)
+    A ./= sqrt(2) 
+
+    F = qr!(A)
+    Q = Matrix(F.Q)
+    R = F.R
+
+    foreach(eachcol(Q), diag(R)) do col, r
+        col .*= r/abs(r)
+    end
     return toSU(Q)
 end
