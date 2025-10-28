@@ -83,8 +83,8 @@ Threads.@threads for i in 1:n_samples
 end
 
 ### check results
-dim = 6
-@load "./sims/$(dim)_xy_10.jld2" gate z ξ hp IF GT retcode
+dim = 12
+@load "./sims/$(dim)_xy_1.jld2" gate z ξ hp IF GT retcode
 
 t, x, u = state_control(z, hp; nt=2_000);
 gate_time = gatetime(z, hp)
