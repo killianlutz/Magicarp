@@ -50,16 +50,8 @@ function Td(dim; su=true)
     return T
 end
 
-function toSU(Q)
-    dim = size(Q, 1)
-    φ = angle(det(Q)) 
-    return Q*cis(-φ/dim) 
-end
-
-function sample_spunitary(dim; rng=default_rng())
+function sample_unitary(dim; rng=default_rng())
     A = randn(rng, ComplexF64, dim, dim)
-    A ./= sqrt(2) 
-
     F = qr!(A)
     Q = Matrix(F.Q)
     R = F.R
@@ -67,5 +59,15 @@ function sample_spunitary(dim; rng=default_rng())
     foreach(eachcol(Q), diag(R)) do col, r
         col .*= r/abs(r)
     end
-    return toSU(Q)
+    return Q
+end
+
+function toSU(Q)
+    dim = size(Q, 1)
+    φ = angle(det(Q)) 
+    return Q*cis(-φ/dim) 
+end
+
+function sample_spunitary(dim; rng=default_rng())
+    toSU(sample_unitary(dim; rng))
 end
