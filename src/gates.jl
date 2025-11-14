@@ -24,10 +24,10 @@ function SUMX(dim; su=true)
     Z = zero(X)
     Id = one(X)
     S = [
-        Id Z Z Z; 
-         Z X Z Z;
-         Z Z X Z; 
-         Z Z Z X
+        Id Z Z   Z; 
+         Z X Z   Z;
+         Z Z X^2 Z; 
+         Z Z Z   X^3
          ]
 
     su ? S = toSU(S) : nothing
