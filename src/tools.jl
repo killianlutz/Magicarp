@@ -10,11 +10,6 @@ function infidelity(x1, q)
     abs(1.0 - fidelity)
 end
 
-function grad_infidelity(x1, q)
-    # gradient of 1 - abs2(infidelity)/d^2
-    (-2/length(q))*dot(q, x1)*q
-end
-
 function initialguess(dim; z0=missing, rng=default_rng())
     z = zeros(ComplexF64, dim, dim)
     if ismissing(z0)

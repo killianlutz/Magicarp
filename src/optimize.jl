@@ -46,8 +46,8 @@ function optimize!(p, lsearch_p;
                 break
             end
 
-            if with_reset & (i % 50 == 0)
-                if is_stuck(IF, i+1; window=50, reltol=1e-2) 
+            if with_reset && (i % nsteps÷2 == 0)
+                if is_stuck(IF, i+1; window=nsteps÷2, reltol=1e-2) 
                     verbose_every > 0 ? println("///// RESET /////") : nothing
                     cost, gtime = restart(p; rng)
                 end
@@ -171,8 +171,8 @@ function refine_mesh!(p, nt)
     # refining mesh without allocating new arrays
     ξ, z, hp = p.ξ, p.z, p.hp
     
-    H, q, basis, η, PA = hp.H, hp.q, hp.basis, hp.η, hp.PA
-    hp = (; H, q, basis, η, nt, PA) # ONLY CHANGE: finer mesh dt=1/nt
+    H, q, basis, scheme, PA = hp.H, hp.q, hp.basis, hp.scheme, hp.PA
+    hp = (; H, q, basis, scheme, nt, PA) # ONLY CHANGE: finer mesh dt=1/nt
 
     ∇ℓ, ∇J, δξ, δz, μ = p.∇ℓ, p.∇J, p.δξ, p.δz, p.μ
     PA = (; ∇ℓ, ∇J, δξ, δz, μ) # kept identical
@@ -203,7 +203,7 @@ function restart(p; rng=default_rng())
     
     cost = evalcost!(z, hp)
     gtime = gatetime(z, hp)
-    return (cost, gtime)
+    return cost, gtime
 end
 
 function preallocate(dim, T)
@@ -308,11 +308,7 @@ function isdone(i, nsteps, every, cost, gtime, IFabstol)
         fraction = i/nsteps
         @printf "iter: %.2f || IF = %.4e || GT = %.4e \n" fraction cost gtime
     end    
-    if cost <= IFabstol
-        return true
-    else
-        return false
-    end
+    cost <= IFabstol ? true : false
 end
 
 function postprocess(t, u, IFval, IF, GT; fig=Figure(size=(1_000, 500)))

@@ -25,7 +25,7 @@ end;
 n_threads = Threads.nthreads() 
 problems = map(1:n_threads) do i
     gate::T = one(first(H))                            # target  gate
-    hp = hyperparameters(gate, H; η=0.0, nt);
+    hp = hyperparameters(gate, H; scheme, nt);
 
     z::T = zeros(ComplexF64, dim, dim)                 # g matrix
     ξ::Vector{Float64} = randn(n)             # coefficients of g in su(d) basis
@@ -83,7 +83,7 @@ Threads.@threads for i in 1:n_samples
 end
 
 ### check results
-dim = 12
+dim = 4
 @load "./sims/$(dim)_xy_1.jld2" gate z ξ hp IF GT retcode
 
 t, x, u = state_control(z, hp; nt=2_000);

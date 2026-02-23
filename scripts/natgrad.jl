@@ -18,7 +18,7 @@ begin
     H::Vector{T} = hamiltonians(dim, graph; σz=false); # control hamiltonians
     
     gate::T = sample_spunitary(dim; rng);              # target  gate
-    hp = hyperparameters(gate, H; η=0.0, nt);
+    hp = hyperparameters(gate, H; scheme, nt);
 
     z::T = zeros(ComplexF64, dim, dim)                 # g matrix
     ξ::Vector{Float64} = randn(rng, n)                 # coefficients of g in su(d) basis

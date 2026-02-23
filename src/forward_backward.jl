@@ -21,8 +21,8 @@ function preallocate(dim, T, V)
     # x0::T = gate
     x0::T = convert(T, I(dim))
     v::U = OdePoint3{T, V}(similar(x0), similar(x0), convert(V, similar(x0)))
-    xs::Vector{T} = [similar(x0) for _ in 1:4]
-    vs::Vector{U} = [similar(v) for _ in 1:4]
+    xs::Vector{T} = [similar(x0) for _ in 1:6]
+    vs::Vector{U} = [similar(v) for _ in 1:6]
     Pz::V = similar(v.g)
     dJ::V = similar(v.g)
     zρ::V = similar(v.g)
@@ -35,11 +35,12 @@ function preallocate(dim, T, V)
     return preallocs
 end
 
-function hyperparameters(gate::T, H; η=0.0, nt=100) where T<:AbstractMatrix
+function hyperparameters(gate::T, H; scheme=:RK4, nt=100) where T<:AbstractMatrix
     dim = size(gate, 1)
     PA = preallocate(dim, T, T) # ASSUME: V type = T type
     basis = subasis(dim)
-    hp = (; H, q=gate, basis, η, nt, PA)
+    s = scheme == :RK4 ? RK4! : heun!
+    hp = (; H, q=gate, basis, scheme=s, nt, PA)
     return hp
 end
 
@@ -140,13 +141,81 @@ function heun!(velocity, y0::OdePoint3, p, nt, ys)
     return y
 end
 
+function RK4!(f, y0, p, nt, ys)
+    # f(dy, y, p, t)
+    dt = 1.0/(nt - 1)
+    y1, y2, y3, y4, y5, y = ys # preallocations of typeof(y)
+
+    t = 0.0
+    y .= y0
+    for _ in 1:nt-1
+        # 4 stages
+        f(y1, y, p, t)  # y1 = k1
+
+        t += 0.5*dt
+        y5 .= y .+ 0.5*dt .* y1
+        f(y2, y5, p, t) # y2 = k2
+
+        y5 .= y .+ 0.5*dt .* y2
+        f(y3, y5, p, t) # y3 = k3
+
+        t += 0.5*dt
+        y5 .= y .+ dt .* y3
+        f(y4, y5, p, t) # y4 = k4
+
+        # update y
+        y .+= (y1 .+ 2 .* y2 .+ 2 .* y3 .+ y4).*dt./6
+    end
+
+    return y
+end
+
+function RK4!(velocity, y0::OdePoint3, p, nt, ys)
+    # velocity(dy, y, p, t)
+    dt = 1.0/(nt - 1)    
+    y1, y2, y3, y4, y5, y = ys # preallocations of typeof(y)
+
+    t = 0.0
+    y.x .= y0.x
+    y.a .= y0.a
+    y.g .= y0.g
+    for _ in 1:nt-1
+        # 4 stages
+        velocity(y1, y, p, t)  # y1 = k1
+
+        t += 0.5*dt
+        y5.x .= y.x .+ 0.5*dt .* y1.x
+        y5.a .= y.a .+ 0.5*dt .* y1.a
+        y5.g .= y.g .+ 0.5*dt .* y1.g
+        velocity(y2, y5, p, t) # y2 = k2
+
+        y5.x .= y.x .+ 0.5*dt .* y2.x
+        y5.a .= y.a .+ 0.5*dt .* y2.a
+        y5.g .= y.g .+ 0.5*dt .* y2.g
+        velocity(y3, y5, p, t) # y3 = k3
+
+        t += 0.5*dt
+        y5.x .= y.x .+ dt .* y3.x
+        y5.a .= y.a .+ dt .* y3.a
+        y5.g .= y.g .+ dt .* y3.g
+        velocity(y4, y5, p, t) # y4 = k4
+
+        # update y
+        y.x .+= (y1.x .+ 2 .* y2.x .+ 2 .* y3.x .+ y4.x).*dt./6
+        y.a .+= (y1.a .+ 2 .* y2.a .+ 2 .* y3.a .+ y4.a).*dt./6
+        y.g .+= (y1.g .+ 2 .* y2.g .+ 2 .* y3.g .+ y4.g).*dt./6
+    end
+
+    return y
+end
+
 function forward_evolution!(z, hp)
     v = hp.PA.v
     x0 = hp.PA.x0
     temp = hp.PA.xtemp
     p = (; H=hp.H, z, temp)
 
-    v.x .= heun!(state_ode!, x0, p, hp.nt, hp.PA.xs)
+    v.x .= hp.scheme(state_ode!, x0, p, hp.nt, hp.PA.xs)
 end
 
 function backward_evolution!(z, dir, hp)
@@ -156,7 +225,7 @@ function backward_evolution!(z, dir, hp)
     p = (; H=hp.H, z, temp1, temp2)
     
     terminal_adjoint!(dir, hp) 
-    v1 = heun!(grad_ode!, v, p, hp.nt, hp.PA.vs)
+    v1 = hp.scheme(grad_ode!, v, p, hp.nt, hp.PA.vs)
     projhermitian!(v.g, v1.g)
 end
 
@@ -174,12 +243,9 @@ function terminal_adjoint!(dir, hp)
 end
 
 function cost!(hp)
-    Pz = hp.PA.Pz
     x1 = hp.PA.v.x
     q = hp.q
-    η  = hp.η
-
-    η*sum(abs2, Pz) + (1 - η)*infidelity(x1, q)
+    infidelity(x1, q)
 end
 
 function evalcost!(z, hp)

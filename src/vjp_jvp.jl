@@ -75,8 +75,9 @@ function linearized_evolution!(z, δz, hp)
     
     v.x .= x0
     fill!(v.a, 0) # linearization starts at zero since x(0) fixed
-    v1 = heun!(jvp_ode!, v, p, hp.nt, hp.PA.vs)
+    v1 = hp.scheme(jvp_ode!, v, p, hp.nt, hp.PA.vs)
     mul!(δx, v1.x, v1.a)
-
+    # NB : δx = x(1)*v where v=i*w is skew-adjoint
+    
     return δx
 end
