@@ -342,7 +342,7 @@ function postprocess(t, u, IFval, IF, GT; fig=Figure(size=(1_000, 500)))
     colors = to_color.(colgrad)
     foreach(enumerate(zip(rows, colors))) do (i, v)
         u, c = v
-        lines!(axs, t, u, color=c, alpha=1/log2(i))
+        lines!(axs, t, u, color=c, alpha=1/log2(i+1))
     end
 
     fig
